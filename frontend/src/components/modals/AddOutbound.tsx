@@ -8,9 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { cn, copyText } from '@/lib/utils'
-import { IconCheck, IconCopy, IconFlag, IconInfoCircle, IconLink, IconPlus, IconRefresh, IconReplace, IconSearch, IconX } from '@tabler/icons-react'
+import { copyText } from '@/lib/utils'
+import { IconCheck, IconCopy, IconInfoCircle, IconLink, IconPlus, IconRefresh, IconReplace, IconX } from '@tabler/icons-react'
 import { useMemo, useState } from 'react'
 import {
   listMihomoProviders,
@@ -22,6 +21,9 @@ import {
 } from '../../lib/mihomoReplace'
 import { useAppContext, useModalContext } from '../../lib/store'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '../ui/input-group'
+import { FlagPicker } from './FlagPicker'
+import { CLIENT_FINGERPRINTS, createXraySubscription, XraySubscriptionEditor } from './XraySubscriptions'
+import type { XraySubscription } from '../../lib/types'
 import { SelectGroup } from '@/components/ui/select'
 
 const USER_AGENTS = [
@@ -31,162 +33,6 @@ const USER_AGENTS = [
   'v2rayN/7.24.8',
   'v2rayNG/2.2.6'
 ]
-
-const CLIENT_FINGERPRINTS = ['chrome', 'firefox', 'safari', 'iOS', 'android', 'edge', '360', 'qq', 'random']
-
-const FLAG_OPTIONS: { emoji: string; label: string; en: string }[] = [
-  { emoji: '🇷🇺', label: 'Россия', en: 'Russia' },
-  { emoji: '🇺🇦', label: 'Украина', en: 'Ukraine' },
-  { emoji: '🇧🇾', label: 'Беларусь', en: 'Belarus' },
-  { emoji: '🇰🇿', label: 'Казахстан', en: 'Kazakhstan' },
-  { emoji: '🇺🇿', label: 'Узбекистан', en: 'Uzbekistan' },
-  { emoji: '🇬🇪', label: 'Грузия', en: 'Georgia' },
-  { emoji: '🇦🇲', label: 'Армения', en: 'Armenia' },
-  { emoji: '🇦🇿', label: 'Азербайджан', en: 'Azerbaijan' },
-  { emoji: '🇫🇮', label: 'Финляндия', en: 'Finland' },
-  { emoji: '🇸🇪', label: 'Швеция', en: 'Sweden' },
-  { emoji: '🇳🇴', label: 'Норвегия', en: 'Norway' },
-  { emoji: '🇩🇰', label: 'Дания', en: 'Denmark' },
-  { emoji: '🇮🇸', label: 'Исландия', en: 'Iceland' },
-  { emoji: '🇩🇪', label: 'Германия', en: 'Germany' },
-  { emoji: '🇫🇷', label: 'Франция', en: 'France' },
-  { emoji: '🇳🇱', label: 'Нидерланды', en: 'Netherlands' },
-  { emoji: '🇧🇪', label: 'Бельгия', en: 'Belgium' },
-  { emoji: '🇨🇭', label: 'Швейцария', en: 'Switzerland' },
-  { emoji: '🇦🇹', label: 'Австрия', en: 'Austria' },
-  { emoji: '🇵🇱', label: 'Польша', en: 'Poland' },
-  { emoji: '🇨🇿', label: 'Чехия', en: 'Czechia' },
-  { emoji: '🇸🇰', label: 'Словакия', en: 'Slovakia' },
-  { emoji: '🇭🇺', label: 'Венгрия', en: 'Hungary' },
-  { emoji: '🇷🇴', label: 'Румыния', en: 'Romania' },
-  { emoji: '🇧🇬', label: 'Болгария', en: 'Bulgaria' },
-  { emoji: '🇬🇷', label: 'Греция', en: 'Greece' },
-  { emoji: '🇷🇸', label: 'Сербия', en: 'Serbia' },
-  { emoji: '🇭🇷', label: 'Хорватия', en: 'Croatia' },
-  { emoji: '🇸🇮', label: 'Словения', en: 'Slovenia' },
-  { emoji: '🇮🇹', label: 'Италия', en: 'Italy' },
-  { emoji: '🇪🇸', label: 'Испания', en: 'Spain' },
-  { emoji: '🇵🇹', label: 'Португалия', en: 'Portugal' },
-  { emoji: '🇮🇪', label: 'Ирландия', en: 'Ireland' },
-  { emoji: '🇬🇧', label: 'Великобритания', en: 'United Kingdom' },
-  { emoji: '🇪🇪', label: 'Эстония', en: 'Estonia' },
-  { emoji: '🇱🇻', label: 'Латвия', en: 'Latvia' },
-  { emoji: '🇱🇹', label: 'Литва', en: 'Lithuania' },
-  { emoji: '🇺🇸', label: 'США', en: 'United States' },
-  { emoji: '🇨🇦', label: 'Канада', en: 'Canada' },
-  { emoji: '🇧🇷', label: 'Бразилия', en: 'Brazil' },
-  { emoji: '🇦🇷', label: 'Аргентина', en: 'Argentina' },
-  { emoji: '🇯🇵', label: 'Япония', en: 'Japan' },
-  { emoji: '🇰🇷', label: 'Южная Корея', en: 'South Korea' },
-  { emoji: '🇨🇳', label: 'Китай', en: 'China' },
-  { emoji: '🇸🇬', label: 'Сингапур', en: 'Singapore' },
-  { emoji: '🇭🇰', label: 'Гонконг', en: 'Hong Kong' },
-  { emoji: '🇹🇼', label: 'Тайвань', en: 'Taiwan' },
-  { emoji: '🇹🇷', label: 'Турция', en: 'Turkey' },
-  { emoji: '🇮🇱', label: 'Израиль', en: 'Israel' },
-  { emoji: '🇦🇪', label: 'ОАЭ', en: 'UAE' },
-  { emoji: '🇮🇳', label: 'Индия', en: 'India' },
-  { emoji: '🇦🇺', label: 'Австралия', en: 'Australia' },
-  { emoji: '🇳🇿', label: 'Новая Зеландия', en: 'New Zealand' },
-  { emoji: '🇿🇦', label: 'ЮАР', en: 'South Africa' },
-]
-
-function appendFlags(value: string, flags: string[]): string {
-  const next = flags.filter((flag) => !value.includes(flag))
-  if (!next.length) return value
-  const joined = next.join('|')
-  if (!value.trim()) return joined
-  return value.endsWith('|') ? value + joined : `${value}|${joined}`
-}
-
-function FlagPicker({ value, onAdd }: { value: string; onAdd: (next: string) => void }) {
-  const [open, setOpen] = useState(false)
-  const [selected, setSelected] = useState<string[]>([])
-  const [query, setQuery] = useState('')
-
-  const search = query.trim().toLowerCase()
-  const visibleFlags = search
-    ? FLAG_OPTIONS.filter(
-      (flag) => flag.label.toLowerCase().includes(search) || flag.en.toLowerCase().includes(search)
-    )
-    : FLAG_OPTIONS
-
-  function toggleFlag(flag: string) {
-    setSelected((prev) => (prev.includes(flag) ? prev.filter((f) => f !== flag) : [...prev, flag]))
-  }
-
-  function confirm() {
-    onAdd(appendFlags(value, selected))
-    setOpen(false)
-  }
-
-  return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        if (next) {
-          setSelected(FLAG_OPTIONS.filter((flag) => value.includes(flag.emoji)).map((flag) => flag.emoji))
-          setQuery('')
-        }
-        setOpen(next)
-      }}
-    >
-      <PopoverTrigger
-        render={
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            className="text-muted-foreground hover:text-foreground size-6 hover:border-[#60a5fa] hover:bg-blue-500/15! active:translate-y-0"
-            aria-label="Добавить флаги"
-          >
-            <IconFlag className="size-4" />
-          </Button>
-        }
-      />
-      <PopoverContent align="end" sideOffset={6} className="w-64">
-        <InputGroup className="h-8">
-          <InputGroupAddon align="inline-start">
-            <IconSearch />
-          </InputGroupAddon>
-          <InputGroupInput
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Поиск: Россия / Russia"
-            className="text-xs"
-          />
-        </InputGroup>
-        <div className="grid max-h-52 grid-cols-6 gap-1 overflow-y-auto pr-1">
-          {visibleFlags.map(({ emoji, label, en }) => (
-            <button
-              key={emoji}
-              type="button"
-              title={`${label} / ${en}`}
-              aria-label={label}
-              aria-pressed={selected.includes(emoji)}
-              onClick={() => toggleFlag(emoji)}
-              className={cn(
-                'flex size-8 items-center justify-center rounded-md border border-transparent text-base transition-colors active:translate-y-0',
-                selected.includes(emoji)
-                  ? 'border-[#60a5fa] bg-blue-500/25'
-                  : 'hover:border-[#60a5fa] hover:bg-blue-500/15'
-              )}
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
-        {visibleFlags.length === 0 && <p className="text-muted-foreground text-xs">Ничего не найдено</p>}
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-muted-foreground text-xs">{selected.length} выбрано</span>
-          <Button size="sm" disabled={!selected.length} onClick={confirm}>
-            Добавить
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
-  )
-}
 
 const X25519_OPTIONS: { value: 'inherit' | 'enable' | 'disable'; label: string }[] = [
   { value: 'inherit', label: 'Наследовать от провайдера' },
@@ -454,9 +300,11 @@ interface Props {
   onGenerate: (uri: string, excludeName?: string) => { content: string; type: string } | null
   onAddToConfig: (content: string, type: string, position: 'start' | 'end') => void
   onReplace: (kind: 'proxy' | 'provider', content: string, oldName: string, renameRefs: boolean) => void
+  /** Подписка Xray добавлена — родитель открывает выбор основного сервера. */
+  onSubscriptionSaved: (sub: XraySubscription) => void
 }
 
-export function ImportModal({ onGenerate, onAddToConfig, onReplace }: Props) {
+export function ImportModal({ onGenerate, onAddToConfig, onReplace, onSubscriptionSaved }: Props) {
   const { showToast, state } = useAppContext({ includeConfigs: true })
   const { modals, dispatch } = useModalContext()
   const [uri, setUri] = useState('')
@@ -472,11 +320,9 @@ export function ImportModal({ onGenerate, onAddToConfig, onReplace }: Props) {
   const [renameRefs, setRenameRefs] = useState(true)
   const [subDefaultName, setSubDefaultName] = useState<string | null>(null)
   const [providerNameAutoSet, setProviderNameAutoSet] = useState(false)
+  const [xraySub, setXraySub] = useState<XraySubscription | null>(null)
 
-  const isValidUri = SUPPORTED_PROTOCOLS.some((p) => {
-    if (state.currentCore !== 'mihomo' && (p === 'http://' || p === 'https://')) return false
-    return uri.toLowerCase().startsWith(p)
-  })
+  const isValidUri = SUPPORTED_PROTOCOLS.some((p) => uri.toLowerCase().startsWith(p))
 
   function close() {
     dispatch({ type: 'SHOW_MODAL', modal: 'showImportModal', show: false })
@@ -486,6 +332,7 @@ export function ImportModal({ onGenerate, onAddToConfig, onReplace }: Props) {
       setResultUri(null)
       setSubForm(null)
       setSubDefaultName(null)
+      setXraySub(null)
       setIsCustomUA(false)
       setCustomUA('')
       setReplaceOpen(false)
@@ -502,6 +349,16 @@ export function ImportModal({ onGenerate, onAddToConfig, onReplace }: Props) {
     setReplaceTarget(null)
     setRenameRefs(true)
     setProviderNameAutoSet(false)
+    setXraySub(null)
+
+    if (/^https?:\/\//i.test(trimmed) && state.currentCore !== 'mihomo') {
+      const existingTags = state.configs.map((c) => c.file.match(/04_outbounds(?:_sub)?\.([\w-]+)\.json$/)?.[1]).filter((t): t is string => !!t)
+      setXraySub(createXraySubscription(trimmed, existingTags))
+      setResult(null)
+      setResultUri(null)
+      setSubForm(null)
+      return
+    }
 
     if (/^https?:\/\//i.test(trimmed)) {
       const existingContent = state.configs.find((c) => c.file.endsWith('/config.yaml') || c.file === 'config.yaml')?.content ?? ''
@@ -666,11 +523,25 @@ export function ImportModal({ onGenerate, onAddToConfig, onReplace }: Props) {
               <IconLink size={24} className="text-chart-2" /> Добавить подключение
             </DialogTitle>
             <DialogDescription>
-              Вставьте ссылку в формате protocol://{state.currentCore === 'mihomo' && ' или https://'}
+              Вставьте ссылку в формате protocol:// или ссылку на подписку https://
             </DialogDescription>
           </DialogHeader>
 
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+            {xraySub && (
+              <div className="border-border bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
+                <XraySubscriptionEditor
+                  key={xraySub.url}
+                  initial={xraySub}
+                  isEdit={false}
+                  onSaved={(saved) => {
+                    close()
+                    onSubscriptionSaved(saved)
+                  }}
+                />
+              </div>
+            )}
+
             {showSubForm && (
               <div className="border-border bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
                 <Tabs value={subTab} onValueChange={setSubTab} className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -1166,6 +1037,7 @@ export function ImportModal({ onGenerate, onAddToConfig, onReplace }: Props) {
                         setResultUri(null)
                         setSubForm(null)
                         setSubDefaultName(null)
+                        setXraySub(null)
                         setReplaceOpen(false)
                         setReplaceTarget(null)
                         setRenameRefs(true)

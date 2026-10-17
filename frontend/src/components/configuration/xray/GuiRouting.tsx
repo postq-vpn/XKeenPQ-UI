@@ -84,8 +84,12 @@ function collectTags(content: string | undefined, read: (json: any) => any[] | u
 
 function readAvailable(configs: Config[], activeContent: string): AvailableTags {
   const findContent = (name: string) => configs.find((config) => config.file.toLowerCase().includes(name))?.content
+  // Outbounds лежат в нескольких файлах (свои + 04_outbounds_sub.* подписок) — собираем из всех.
+  const outbounds = configs
+    .filter((config) => config.file.toLowerCase().includes('outbound'))
+    .flatMap((config) => collectTags(config.content, (json) => json.outbounds))
   return {
-    outbounds: collectTags(findContent('outbound'), (json) => json.outbounds),
+    outbounds: [...new Set(outbounds)],
     inbounds: collectTags(findContent('inbound'), (json) => json.inbounds),
     balancers: collectTags(activeContent, (json) => json.routing?.balancers),
   }

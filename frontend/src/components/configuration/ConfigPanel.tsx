@@ -59,6 +59,7 @@ import { parse as parseJsonc } from 'jsonc-parser'
 import { MassConfirmDialog } from '../log/multi-routers/MassConfirmDialog'
 import { BackupsModal } from '../modals/Backups'
 import { ProvidersModal } from '../modals/Providers'
+import { XraySubscriptionsModal } from '../modals/XraySubscriptions'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '../ui/context-menu'
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '../ui/input-group'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
@@ -344,6 +345,8 @@ export function ConfigPanel({
   const [providersModalKind, setProvidersModalKind] = useState<ProvidersModalKind | null>(null)
   const [isProvidersModalOpen, setIsProvidersModalOpen] = useState(false)
   const mountProvidersModal = useLazyMount(isProvidersModalOpen)
+  const [isXraySubsOpen, setIsXraySubsOpen] = useState(false)
+  const mountXraySubs = useLazyMount(isXraySubsOpen)
   const currentPanel = isRunning ? activePanel : 'config'
   const [massConfirm, setMassConfirm] = useState<{
     title: string
@@ -498,6 +501,17 @@ export function ConfigPanel({
   }, [])
 
   const handleProvidersModalOpenChange = useCallback((open: boolean) => setIsProvidersModalOpen(open), [])
+
+  // Подписок ещё нет — сразу открываем добавление сервера/подписки вместо пустого списка.
+  const openXraySubscriptions = useCallback(async () => {
+    try {
+      const res = await apiCall<{ success: boolean; subscriptions?: unknown[] }>('GET', 'subscriptions')
+      if (res.success && res.subscriptions?.length === 0) return onOpenImport()
+    } catch {
+      /* откроем список, он сам покажет ошибку */
+    }
+    setIsXraySubsOpen(true)
+  }, [onOpenImport])
 
   const refreshConfigsAndEditor = useCallback(async () => {
     const currentCfg = configsRef.current[activeIndexRef.current]
@@ -857,7 +871,15 @@ export function ConfigPanel({
                   </Tabs>
                 </div>
               ) : (
-                <h2 className="shrink-0 text-lg font-semibold select-none">Конфигурация</h2>
+                <div className="flex items-center gap-3">
+                  <h2 className="shrink-0 text-lg font-semibold select-none">Конфигурация</h2>
+                  {!isCoreMihomo && (
+                    <Button variant="outline" size="sm" className="text-[13px]" onClick={() => void openXraySubscriptions()}>
+                      <IconListDetails data-icon="inline-start" />
+                      Подписки
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
 
@@ -1200,6 +1222,17 @@ export function ConfigPanel({
             clashApiSecret={clashApiSecret ?? null}
             clashApiUnix={activeClashApiUnix ?? null}
             onOpenChange={handleProvidersModalOpenChange}
+          />
+        )}
+        {mountXraySubs && (
+          <XraySubscriptionsModal
+            open={isXraySubsOpen}
+            onOpenChange={setIsXraySubsOpen}
+            onChanged={() => void refreshConfigsAndEditor()}
+            onAddNew={() => {
+              setIsXraySubsOpen(false)
+              onOpenImport()
+            }}
           />
         )}
         <BackupsModalContainer onRefreshConfigs={refreshConfigsAndEditor} />

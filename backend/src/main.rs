@@ -10,6 +10,7 @@ mod logger;
 mod route_test;
 mod provider_inspector;
 mod settings;
+mod subscriptions;
 mod system;
 mod types;
 mod updater;
@@ -299,7 +300,7 @@ async fn main() {
                 let err = std::process::Command::new("sh")
                     .args([
                         "-c",
-                        "curl -L https://raw.githubusercontent.com/zxc-rv/XKeen-UI/main/setup.sh | sh",
+                        "curl -L https://raw.githubusercontent.com/kiloo11/XKeenPQ-UI/main/setup.sh | sh",
                     ])
                     .exec();
                 eprintln!(" {} {}", " Ошибка запуска setup:".red().bold(), err);
@@ -440,6 +441,7 @@ async fn main() {
         rci_token,
     };
     version::start_update_checker(state.clone());
+    subscriptions::start_scheduler(state.clone());
 
     if let Some(ref _token) = state.rci_token {
         log("INFO", "RCI токен успешно загружен".into());
@@ -500,6 +502,20 @@ async fn main() {
             "/api/route-test",
             get(route_test::get_route_test_meta).post(route_test::post_route_test),
         )
+        .route(
+            "/api/subscriptions",
+            get(subscriptions::get_subscriptions)
+                .post(subscriptions::post_subscription)
+                .patch(subscriptions::patch_subscription)
+                .delete(subscriptions::delete_subscription),
+        )
+        .route("/api/subscriptions/preview", post(subscriptions::post_preview))
+        .route("/api/subscriptions/refresh", post(subscriptions::post_refresh))
+        .route("/api/subscriptions/servers", post(subscriptions::post_servers))
+        .route("/api/subscriptions/ping", post(subscriptions::post_ping))
+        .route("/api/subscriptions/primary", post(subscriptions::post_primary))
+        .route("/api/subscriptions/device", get(subscriptions::get_device))
+        .route("/api/subscriptions/proxy", post(subscriptions::post_proxy))
         .route("/api/device-list", get(api_relay::get_device_list))
         .route("/api/update", post(updater::post_update))
         .route("/api/geo", get(geo::get_geo))

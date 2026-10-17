@@ -56,6 +56,42 @@ export interface ProxyProvider {
   subscriptionInfo?: ProxySubscriptionInfo
 }
 
+/** Сервер подписки Xray (краткая сводка, без ключей). */
+export interface XraySubscriptionServer {
+  tag: string
+  protocol: string
+  address?: string
+  port?: number
+  disabled: boolean
+}
+
+/** Подписка Xray (backend: subscriptions/mod.rs). Поля состояния задаёт backend. */
+export interface XraySubscription {
+  tag: string
+  url: string
+  interval: number
+  /** Обязателен: без него панель не отдаёт подписку. */
+  hwid: string
+  filter: string
+  exclude_filter: string
+  exclude_type: string
+  fingerprint: string
+  /** Теги серверов, отключённых пользователем. */
+  disabled_servers: string[]
+  /** Выбранный сервер (тег); пусто — первый включённый. Работает под тегом подписки. */
+  primary: string
+  last_update?: number
+  last_attempt?: number
+  last_error?: string | null
+  servers?: number
+  total_servers?: number
+  userinfo?: { upload: number; download: number; total: number; expire: number } | null
+  /** Последний полученный список серверов, включая отключённые. */
+  server_list?: XraySubscriptionServer[]
+  /** Подписка «Для прокси»: проксируемые правила routing направлены на её тег. */
+  proxy?: boolean
+}
+
 export interface RuleProvider {
   name: string
   type: string

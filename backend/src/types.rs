@@ -14,6 +14,7 @@ pub const MIHOMO_CONF_DIR: &str = "/opt/etc/mihomo";
 pub const S24XRAY: &str = "/opt/etc/init.d/S24xray";
 pub const S99XKEEN: &str = "/opt/etc/init.d/S99xkeen";
 pub const S99XKEEN_UI: &str = "/opt/etc/init.d/S99xkeen-ui";
+pub const SUBSCRIPTIONS_FILE: &str = "/opt/etc/xkeen/xkeen-ui-subscriptions.json";
 pub const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 pub const XKEEN_CONF_DIR: &str = "/opt/etc/xkeen";
 pub const XKEEN_CONF: &str = "/opt/etc/xkeen/xkeen.json";

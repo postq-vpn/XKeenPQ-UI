@@ -65,7 +65,7 @@ pub fn get_repo(updater: &UpdaterSettings, core: &str) -> Option<String> {
     let (url, fallback) = match core {
         "xray" => (&updater.xray_repo, "XTLS/Xray-core"),
         "mihomo" => (&updater.mihomo_repo, "MetaCubeX/mihomo"),
-        "self" => return Some("zxc-rv/XKeen-UI".into()),
+        "self" => return Some("kiloo11/XKeenPQ-UI".into()),
         _ => return None,
     };
     Some(if valid_repo_url(url) {
@@ -701,7 +701,7 @@ mod tests {
         let mut s = UpdaterSettings::default();
         assert_eq!(get_repo(&s, "xray").as_deref(), Some("XTLS/Xray-core"));
         assert_eq!(get_repo(&s, "mihomo").as_deref(), Some("MetaCubeX/mihomo"));
-        assert_eq!(get_repo(&s, "self").as_deref(), Some("zxc-rv/XKeen-UI"));
+        assert_eq!(get_repo(&s, "self").as_deref(), Some("kiloo11/XKeenPQ-UI"));
 
         s.xray_repo = "https://github.com/someone/xray-fork".into();
         assert_eq!(get_repo(&s, "xray").as_deref(), Some("someone/xray-fork"));

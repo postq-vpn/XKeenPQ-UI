@@ -13,6 +13,7 @@ import { RouteTesterModal } from './components/modals/RouteTester'
 import { SettingsModal } from './components/modals/Settings'
 import { TemplateModal } from './components/modals/Templates'
 import { UpdateModal } from './components/modals/Update'
+import { XrayServerDialog } from './components/modals/XraySubscriptions'
 import { StatusBar } from './components/status/StatusBar'
 import { Toast } from './components/ui/toast'
 import { apiCall, capitalize } from './lib/api'
@@ -38,6 +39,7 @@ import {
   DEFAULT_XRAY_REPO,
   type Config,
   type ThemeMode,
+  type XraySubscription,
 } from './lib/types'
 import { parseClashApiCredentials } from './lib/utils'
 import { parse as parseJsonc } from 'jsonc-parser'
@@ -62,6 +64,7 @@ interface ModalManagerProps {
   onAddToConfig: (content: string, type: string, position: 'start' | 'end') => void
   onReplace: (kind: 'proxy' | 'provider', content: string, oldName: string, renameRefs: boolean) => void
   onImportTemplate: (url: string) => Promise<void>
+  onSubscriptionSaved: () => void
   openModal: (modal: string) => void
 }
 
@@ -72,6 +75,7 @@ const ModalManager = memo(function ModalManager({
   onAddToConfig,
   onReplace,
   onImportTemplate,
+  onSubscriptionSaved,
   openModal,
 }: ModalManagerProps) {
   const { modals, dispatch } = useModalContext()
@@ -85,6 +89,15 @@ const ModalManager = memo(function ModalManager({
   const mountSettings = useLazyMount(modals.showSettingsModal)
   const mountGeoScan = useLazyMount(modals.showGeoScanModal)
   const mountRouteTest = useLazyMount(modals.showRouteTestModal)
+  // Новая подписка Xray: после закрытия «Добавить подключение» отдельным окном выбираем сервер.
+  const [serverPickSub, setServerPickSub] = useState<XraySubscription | null>(null)
+  const handleSubscriptionSaved = useCallback(
+    (sub: XraySubscription) => {
+      onSubscriptionSaved()
+      setTimeout(() => setServerPickSub(sub), 200)
+    },
+    [onSubscriptionSaved]
+  )
 
   return (
     <>
@@ -99,7 +112,22 @@ const ModalManager = memo(function ModalManager({
         />
       )}
       {mountUpdate && <UpdateModal onInstalled={onInstalled} />}
-      {mountImport && <ImportModal onGenerate={onGenerate} onAddToConfig={onAddToConfig} onReplace={onReplace} />}
+      {mountImport && (
+        <ImportModal
+          onGenerate={onGenerate}
+          onAddToConfig={onAddToConfig}
+          onReplace={onReplace}
+          onSubscriptionSaved={handleSubscriptionSaved}
+        />
+      )}
+      <XrayServerDialog
+        sub={serverPickSub}
+        onClose={() => setServerPickSub(null)}
+        onDone={() => {
+          setServerPickSub(null)
+          onSubscriptionSaved()
+        }}
+      />
       {mountAmneziaImport && <ImportAmneziaModal onAddToConfig={onAddToConfig} />}
       {mountTemplate && <TemplateModal onImport={onImportTemplate} />}
       {mountSettings && <SettingsModal />}
@@ -285,6 +313,8 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     const timer = setInterval(() => void refreshAllOnline(), ONLINE_PING_INTERVAL_MS)
     return () => clearInterval(timer)
   }, [onlineTargetsKey, multiRouter])
+
+  const refreshConfigsSilently = useCallback(() => loadConfigs(undefined, false, true), [loadConfigs])
 
   const switchCore = useCallback(
     async (core: string) => {
@@ -536,7 +566,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
             onOpenGeoScan={() => openModal('showGeoScanModal')}
             onOpenRouteTest={() => openModal('showRouteTestModal')}
             onOpenBackups={() => openModal('showBackupsModal')}
-            onRefreshConfigs={() => loadConfigs(undefined, false, true)}
+            onRefreshConfigs={refreshConfigsSilently}
           />
           <LogPanel />
         </div>
@@ -549,6 +579,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
         onAddToConfig={addToConfig}
         onReplace={onReplace}
         onImportTemplate={importTemplate}
+        onSubscriptionSaved={refreshConfigsSilently}
         openModal={openModal}
       />
     </div>

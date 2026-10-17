@@ -112,7 +112,7 @@ function parseDate(value?: string | number) {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
-function formatDateTime(value?: string | number) {
+export function formatDateTime(value?: string | number) {
   return (
     parseDate(value)?.toLocaleString('ru-RU', {
       day: '2-digit',
@@ -124,7 +124,7 @@ function formatDateTime(value?: string | number) {
   )
 }
 
-function formatRelativeTime(value?: string | number) {
+export function formatRelativeTime(value?: string | number) {
   const date = parseDate(value)
   if (!date) return '—'
   const elapsedSeconds = (Date.now() - date.getTime()) / 1000
@@ -133,13 +133,13 @@ function formatRelativeTime(value?: string | number) {
   return relativeTimeFormatter.format(-Math.round(elapsedSeconds / unitSeconds), unit)
 }
 
-function formatBytes(bytes: number) {
+export function formatBytes(bytes: number) {
   const exponent = bytes > 0 ? Math.min(Math.floor(Math.log2(bytes) / 10), BYTE_UNITS.length - 1) : 0
   const value = bytes / 1024 ** exponent
   return `${value.toFixed(exponent === 0 || value >= 100 ? 0 : value >= 10 ? 1 : 2)} ${BYTE_UNITS[exponent]}`
 }
 
-function formatTraffic(info?: ProxySubscriptionInfo) {
+export function formatTraffic(info?: ProxySubscriptionInfo) {
   const used = (info?.Upload ?? 0) + (info?.Download ?? 0)
   const total = info?.Total ?? 0
   if (total > 0) return `${formatBytes(used)} / ${formatBytes(total)}`
@@ -168,7 +168,7 @@ function buildQuery({ name, vehicleType, format, behavior }: ViewTarget) {
   return params.toString()
 }
 
-function ProviderBadge({ tone = 'blue', children }: { tone?: BadgeTone; children: ReactNode }) {
+export function ProviderBadge({ tone = 'blue', children }: { tone?: BadgeTone; children: ReactNode }) {
   return (
     <Badge variant="ghost" className={cn('rounded-full border-none px-2 text-xs', BADGE_TONES[tone])}>
       {children}
@@ -176,7 +176,7 @@ function ProviderBadge({ tone = 'blue', children }: { tone?: BadgeTone; children
   )
 }
 
-function ActionButton({ busy, icon, ...props }: ComponentProps<typeof Button> & { busy: boolean; icon: ReactNode }) {
+export function ActionButton({ busy, icon, ...props }: ComponentProps<typeof Button> & { busy: boolean; icon: ReactNode }) {
   return (
     <Button variant="ghost" size="icon-xs" className="hover:bg-transparent! hover:text-blue-400" {...props}>
       {busy ? <Spinner className="size-4" /> : icon}
@@ -237,7 +237,7 @@ function RuleProviderCells({ provider, index }: { provider: RuleProvider; index:
   )
 }
 
-function LoadingTable() {
+export function LoadingTable() {
   return (
     <div className="space-y-2 p-5">
       {Array.from({ length: 6 }, (_, row) => (

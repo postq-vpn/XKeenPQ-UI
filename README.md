@@ -34,6 +34,7 @@
 - 🕒 Выбор часового пояса в логах
 - 🔀 Переключение/установка/обновление ядер Xray и Mihomo
 - 🔗 Генерация аутбаундов из ссылок (также доступно [отдельно по ссылке](https://zxc-rv.github.io/XKeen-UI/Outbound_Generator/))
+- 📥 Подписки Xray: автообновление, обязательный HWID, выбор сервера с пингом, автоматическая маршрутизация
 - 🩻 Сканирование dat файлов
 - ⚔️ Clash API реализация для Mihomo
 - 📡 Применение и бэкап конфигов на выбранные роутеры (Настройки -> Плагины)
@@ -45,13 +46,13 @@
 ### Cтабильная/Latest версия
 
 ```SH
-curl https://raw.githubusercontent.com/zxc-rv/XKeen-UI/main/setup.sh | sh
+curl https://raw.githubusercontent.com/kiloo11/XKeenPQ-UI/main/setup.sh | sh
 ```
 
 ### Бета/Pre-release версия
 
 ```SH
-curl https://raw.githubusercontent.com/zxc-rv/XKeen-UI/main/setup.sh | sh -s -- beta
+curl https://raw.githubusercontent.com/kiloo11/XKeenPQ-UI/main/setup.sh | sh -s -- beta
 ```
 
 <br>
