@@ -199,6 +199,10 @@ impl Subscription {
     }
 
     fn is_due(&self, now: i64) -> bool {
+        // Список получен версией без `server_names` — обновляем сразу, чтобы появились имена с флагами.
+        if self.server_names.is_empty() && !self.cached_outbounds.is_empty() && now - self.last_attempt >= 300 {
+            return true;
+        }
         if self.interval == 0 {
             return false;
         }
@@ -639,9 +643,10 @@ async fn sync_auto_tags(store: &mut Store) -> bool {
     changed
 }
 
-/// Слова в названии серверов авто-выбора: такие серверы отбрасываются при разборе подписки
-/// и не попадают ни в список, ни в файл outbounds (как `AUTO_SERVER_RE` во frontend/AutoServers.ts).
-const AUTO_SERVER_WORDS: [&str; 2] = ["авто", "auto"];
+/// Слова в названии серверов авто-выбора и стрелки строк-разделителей («⬇️ Тестовые серверы ⬇️»):
+/// такие серверы отбрасываются при разборе подписки и не попадают ни в список, ни в файл outbounds
+/// (как `AUTO_SERVER_RE` во frontend/AutoServers.ts).
+const AUTO_SERVER_WORDS: [&str; 4] = ["авто", "auto", "⬇", "⬆"];
 
 fn is_auto_server(name: &str) -> bool {
     let name = name.to_lowercase();
@@ -1253,6 +1258,21 @@ mod tests {
     }
 
     #[test]
+    fn due_without_names() {
+        let mut sub = Subscription {
+            interval: 0,
+            cached_outbounds: vec![json!({ "tag": "s--NL" })],
+            ..Default::default()
+        };
+        assert!(sub.is_due(1000));
+        sub.last_attempt = 900;
+        assert!(!sub.is_due(1000));
+        sub.server_names.insert("NL".into(), "🇳🇱 NL".into());
+        sub.last_attempt = 0;
+        assert!(!sub.is_due(1000));
+    }
+
+    #[test]
     fn due_logic() {
         let mut sub = Subscription {
             interval: 3600,
@@ -1287,7 +1307,7 @@ mod tests {
     #[test]
     fn auto_servers_dropped() {
         let sub = Subscription { tag: "s".into(), ..Default::default() };
-        let proxies = vec![proxy("NL"), proxy("⚡ Авто-выбор"), proxy("Auto (best)"), proxy("DE")];
+        let proxies = vec![proxy("NL"), proxy("⚡ Авто-выбор"), proxy("Auto (best)"), proxy("⬇️ Тестовые серверы ⬇️"), proxy("DE")];
         let out = build_outbounds(&sub, proxies).unwrap();
         let tags: Vec<_> = out.iter().map(|o| o["tag"].as_str().unwrap()).collect();
         assert_eq!(tags, ["s--NL", "s--DE"]);
