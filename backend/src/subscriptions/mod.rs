@@ -374,11 +374,10 @@ async fn fetch_subscription(state: &AppState, sub: &Subscription) -> Result<Fetc
 /// Корневая причина (connection refused, dns error…) лежит в цепочке source.
 fn without_url(e: &reqwest::Error) -> String {
     let mut msg = e.to_string();
-    if let Some(start) = msg.find(" for url (") {
-        if let Some(end) = msg[start..].find(')') {
+    if let Some(start) = msg.find(" for url (")
+        && let Some(end) = msg[start..].find(')') {
             msg.replace_range(start..start + end + 1, "");
         }
-    }
     let mut source = std::error::Error::source(e);
     let mut root = None;
     while let Some(s) = source {
@@ -704,8 +703,8 @@ async fn restart_xray_if_running() -> Option<String> {
 /// Завершение любого изменения: при необходимости назначает подписку «Для прокси»,
 /// направляет на неё проксируемые правила routing и перезапускает Xray, если что-то изменилось.
 async fn finish_change(store: &mut Store, mut changed: bool) -> Option<String> {
-    if !store.subscriptions.iter().any(|s| s.proxy) {
-        if let Some(first) = store.subscriptions.first_mut() {
+    if !store.subscriptions.iter().any(|s| s.proxy)
+        && let Some(first) = store.subscriptions.first_mut() {
             first.proxy = true;
             log(
                 "INFO",
@@ -715,7 +714,6 @@ async fn finish_change(store: &mut Store, mut changed: bool) -> Option<String> {
                 log("ERROR", format!("Ошибка записи {}: {}", SUBSCRIPTIONS_FILE, e));
             }
         }
-    }
     if let Some(target) = store.subscriptions.iter().find(|s| s.proxy) {
         match routing::sync(&target.tag).await {
             Ok(routing_changed) => changed |= routing_changed,
@@ -939,11 +937,10 @@ pub async fn post_subscription(State(state): State<AppState>, Json(mut sub): Jso
         return fail(e);
     }
     // Первая подписка и маршрутизации ещё нет — создаём routing по умолчанию.
-    if first {
-        if let Err(e) = routing::ensure_default(&sub.tag).await {
+    if first
+        && let Err(e) = routing::ensure_default(&sub.tag).await {
             log("ERROR", format!("Не удалось создать маршрутизацию по умолчанию: {e}"));
         }
-    }
     let restart_error = finish_change(&mut store, true).await;
     // finish_change мог назначить подписку «Для прокси» — отдаём актуальную версию.
     let saved = store.subscriptions.iter().find(|s| s.tag == sub.tag).unwrap_or(&sub);

@@ -34,7 +34,7 @@ import {
 } from '@tabler/icons-react'
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
 import { apiCall, getFileLanguage } from '../../lib/api'
-import { lazyLoad, useLazyMount } from '../../lib/loader'
+import { LazyBoundary, lazyLoad, useLazyMount } from '../../lib/loader'
 import {
   runMassTask,
   summarizeFanOut,
@@ -744,21 +744,27 @@ export function ConfigPanel({
 
           <div className="relative min-h-175! md:min-h-0 md:flex-1">
             {isEditorMounted && activeConfig && isRoutingGui && (
-              <GuiRouting editorRef={editorRef} configs={configs} activeConfigIndex={activeConfigIndex} />
+              <LazyBoundary>
+                <GuiRouting editorRef={editorRef} configs={configs} activeConfigIndex={activeConfigIndex} />
+              </LazyBoundary>
             )}
             {isEditorMounted && activeConfig && isLogGui && (
-              <GuiLog editorRef={editorRef} configs={configs} activeConfigIndex={activeConfigIndex} />
+              <LazyBoundary>
+                <GuiLog editorRef={editorRef} configs={configs} activeConfigIndex={activeConfigIndex} />
+              </LazyBoundary>
             )}
 
             {!isConfigsLoading && (
               <div className={cn('absolute inset-0', isAnyGui && 'pointer-events-none invisible opacity-0')}>
-                <CodeMirrorEditorLazy
-                  ref={editorRef}
-                  onContentChange={handleContentChange}
-                  onValidationChange={handleValidationChange}
-                  onReady={handleEditorReady}
-                  onSave={() => saveCurrentConfig()}
-                />
+                <LazyBoundary>
+                  <CodeMirrorEditorLazy
+                    ref={editorRef}
+                    onContentChange={handleContentChange}
+                    onValidationChange={handleValidationChange}
+                    onReady={handleEditorReady}
+                    onSave={() => saveCurrentConfig()}
+                  />
+                </LazyBoundary>
               </div>
             )}
           </div>

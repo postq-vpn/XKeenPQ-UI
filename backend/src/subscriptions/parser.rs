@@ -27,14 +27,13 @@ pub struct ParseResult {
 pub fn parse_subscription(body: &str) -> ParseResult {
     let body = body.trim().trim_start_matches('\u{feff}');
 
-    if body.starts_with('[') || body.starts_with('{') {
-        if let Ok(json) = serde_json::from_str::<Value>(body) {
+    if (body.starts_with('[') || body.starts_with('{'))
+        && let Ok(json) = serde_json::from_str::<Value>(body) {
             return ParseResult {
                 proxies: parse_xray_json(&json),
                 errors: vec![],
             };
         }
-    }
 
     let decoded = decode_base64(&body.split_whitespace().collect::<String>())
         .and_then(|b| String::from_utf8(b).ok())
@@ -104,11 +103,10 @@ fn parse_xray_json(json: &Value) -> Vec<ParsedProxy> {
             if let Some(obj) = outbound.as_object_mut() {
                 obj.remove("tag");
                 // dialerProxy/mux ссылаются на теги исходного конфига, которых у нас нет.
-                if let Some(sockopt) = obj.get_mut("streamSettings").and_then(|s| s.get_mut("sockopt")) {
-                    if let Some(sockopt) = sockopt.as_object_mut() {
+                if let Some(sockopt) = obj.get_mut("streamSettings").and_then(|s| s.get_mut("sockopt"))
+                    && let Some(sockopt) = sockopt.as_object_mut() {
                         sockopt.remove("dialerProxy");
                     }
-                }
             }
             proxies.push(ParsedProxy { name, outbound });
         }
@@ -244,11 +242,10 @@ fn parse_vmess(link: &str) -> Result<ParsedProxy, String> {
     }
     if field("tls") == "tls" {
         params.insert("security".into(), "tls".into());
-        if !params.contains_key("sni") {
-            if let Some(host) = params.get("host").cloned() {
+        if !params.contains_key("sni")
+            && let Some(host) = params.get("host").cloned() {
                 params.insert("sni".into(), host);
             }
-        }
     }
 
     let network = Some(field("net"))

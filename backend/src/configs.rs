@@ -39,7 +39,7 @@ async fn collect_configs(paths: &[String]) -> Vec<ConfigItem> {
                 Ok(mut entries) => {
                     while let Ok(Some(entry)) = entries.next_entry().await {
                         let entry_path = entry.path();
-                        if entry_path.extension().map_or(false, |e| e == "json") {
+                        if entry_path.extension().is_some_and(|e| e == "json") {
                             match tokio::fs::read_to_string(&entry_path).await {
                                 Ok(content) => results.push(ConfigItem {
                                     file: entry_path.to_string_lossy().into(),
@@ -90,14 +90,13 @@ pub async fn get_configs(State(state): State<AppState>) -> impl IntoResponse {
         while let Ok(Some(entry)) = entries.next_entry().await {
             let path = entry.path();
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if path.extension().map_or(false, |e| e == "lst") || name == "xkeen.json" {
-                if let Ok(content) = tokio::fs::read_to_string(&path).await {
+            if (path.extension().is_some_and(|e| e == "lst") || name == "xkeen.json")
+                && let Ok(content) = tokio::fs::read_to_string(&path).await {
                     lst_configs.push(ConfigItem {
                         file: path.to_string_lossy().into(),
                         content,
                     });
                 }
-            }
         }
     }
 
@@ -155,14 +154,14 @@ pub async fn put_config(
         req.content
     };
 
-    if let Some(core_type) = params.get("validate") {
-        if core_type == "xray" {
+    if let Some(core_type) = params.get("validate")
+        && core_type == "xray" {
             let mut validate_files = Vec::new();
             if let Ok(mut entries) = tokio::fs::read_dir(XRAY_CONF_DIR).await {
                 let mut found_current = false;
                 while let Ok(Some(entry)) = entries.next_entry().await {
                     let path = entry.path();
-                    if path.extension().map_or(false, |e| e == "json") {
+                    if path.extension().is_some_and(|e| e == "json") {
                         let path_str = path.to_string_lossy().into_owned();
                         let file_content = if path_str == req.file {
                             found_current = true;
@@ -194,7 +193,6 @@ pub async fn put_config(
                 return api_error("Validation failed");
             }
         }
-    }
 
     if fs::write(&req.file, &content).is_err() {
         return api_error("Write error");

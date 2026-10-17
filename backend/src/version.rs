@@ -28,7 +28,7 @@ pub async fn version_handler(State(state): State<AppState>) -> impl IntoResponse
     let check = |outdated, last: &std::sync::RwLock<Option<Instant>>| {
         outdated && {
             let mut l = last.write().unwrap();
-            if l.map_or(true, |t| t.elapsed().as_secs() > 86400) {
+            if l.is_none_or(|t| t.elapsed().as_secs() > 86400) {
                 *l = Some(Instant::now());
                 true
             } else {
@@ -76,11 +76,10 @@ pub async fn version_handler(State(state): State<AppState>) -> impl IntoResponse
         obj
     };
 
-    if let Some(v) = xray_version {
-        if let Some(repo) = get_repo(&updater_settings, "xray") {
+    if let Some(v) = xray_version
+        && let Some(repo) = get_repo(&updater_settings, "xray") {
             res.insert("xray".into(), make_core_obj(v, &repo, core_tag.as_deref()));
         }
-    }
 
     res.insert("success".into(), json!(true));
 
@@ -96,7 +95,7 @@ pub fn start_update_checker(state: AppState) {
             let (check_ui, check_core, proxies, upd) = {
                 let s = state.settings.read().unwrap();
                 let need = |on, last: &std::sync::RwLock<Option<Instant>>, sec| {
-                    on && last.read().unwrap().map_or(true, |t| t.elapsed().as_secs() > sec)
+                    on && last.read().unwrap().is_none_or(|t| t.elapsed().as_secs() > sec)
                 };
                 (
                     need(s.updater.auto_check_ui, &state.update_checker.last_ui_check, 14400),
@@ -118,23 +117,21 @@ pub fn start_update_checker(state: AppState) {
                 }
             }
 
-            if check_core {
-                if let Some(repo) = get_repo(&upd, "xray") {
+            if check_core
+                && let Some(repo) = get_repo(&upd, "xray") {
                     let cur_opt = get_local_core_version("xray").await;
                     let cur_str = cur_opt.as_deref().map(|v| v.trim_start_matches('v'));
                     if let Some((latest, tag)) =
                         updater::fetch_latest_version(&state.http_client, &repo, &proxies).await
                     {
-                        if let Some(cur) = cur_str {
-                            if !cur.is_empty() {
+                        if let Some(cur) = cur_str
+                            && !cur.is_empty() {
                                 *state.update_checker.core_outdated.write().unwrap() = compare_versions(&latest, cur);
                             }
-                        }
                         *state.update_checker.core_latest_tag.write().unwrap() = Some(tag);
                         *state.update_checker.last_core_check.write().unwrap() = Some(Instant::now());
                     }
                 }
-            }
         }
     });
 }

@@ -303,16 +303,18 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     void refreshConfigsSilently()
   }, [refreshConfigsSilently])
 
-  // Первый вход без подписок — сразу предлагаем добавить подписку.
-  useEffect(() => {
-    apiCall<{ success: boolean; subscriptions?: unknown[] }>('GET', 'subscriptions')
-      .then((res) => {
-        if (!res.success || (res.subscriptions?.length ?? 0) > 0) return
-        setWelcome(true)
-        setTimeout(() => dispatch({ type: 'SHOW_MODAL', modal: 'showImportModal', show: true }), 300)
-      })
-      .catch(() => {})
-  }, [dispatch])
+  // Первый вход без подписок — сразу предлагаем добавить подписку (по первой загрузке списка на главной).
+  const welcomeCheckedRef = useRef(false)
+  const onSubscriptionsLoaded = useCallback(
+    (subs: XraySubscription[]) => {
+      if (welcomeCheckedRef.current) return
+      welcomeCheckedRef.current = true
+      if (subs.length > 0) return
+      setWelcome(true)
+      setTimeout(() => dispatch({ type: 'SHOW_MODAL', modal: 'showImportModal', show: true }), 300)
+    },
+    [dispatch]
+  )
 
   const generateConfig = useCallback((uri: string) => {
     const existingConfig = editorRef.current?.getValue() ?? ''
@@ -436,6 +438,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
               onChanged={() => void refreshConfigsSilently()}
               onAddNew={() => openModal('showImportModal')}
               headerExtra={techMenu}
+              onLoaded={onSubscriptionsLoaded}
             />
           </div>
           <div className={cn('flex flex-col md:min-h-[70dvh]', view !== 'files' && 'hidden')}>

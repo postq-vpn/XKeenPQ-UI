@@ -44,11 +44,10 @@ pub fn find_init_file(log_enabled: bool) -> Option<String> {
             .map(String::from)
     });
 
-    if log_enabled {
-        if let Some(p) = &final_path {
+    if log_enabled
+        && let Some(p) = &final_path {
             println!("{} [INFO] Defined initd_file ({}): {}", crate::logger::ts(), source, p);
         }
-    }
 
     final_path
 }
@@ -73,11 +72,10 @@ pub fn migrate_init_to_xray(path: &str) {
 }
 
 async fn resolve_init_file(state: &AppState) -> Result<String, String> {
-    if let Some(path) = state.init_file.read().unwrap().clone() {
-        if Path::new(&path).exists() {
+    if let Some(path) = state.init_file.read().unwrap().clone()
+        && Path::new(&path).exists() {
             return Ok(path);
         }
-    }
     let new_path = tokio::task::spawn_blocking(|| find_init_file(false))
         .await
         .map_err(|e| e.to_string())?
@@ -186,7 +184,7 @@ async fn check_core_config() -> Result<(), String> {
     let has_json = std::fs::read_dir(XRAY_CONF_DIR)
         .map(|dir| {
             dir.flatten()
-                .any(|e| e.path().extension().map_or(false, |x| x == "json"))
+                .any(|e| e.path().extension().is_some_and(|x| x == "json"))
         })
         .unwrap_or(false);
     if !has_json {
@@ -213,8 +211,8 @@ pub async fn post_control(State(state): State<AppState>, Json(req): Json<Control
                 _ => "restart",
             };
 
-            if a == "start" || a == "hardRestart" {
-                if let Err(e) = check_core_config().await {
+            if (a == "start" || a == "hardRestart")
+                && let Err(e) = check_core_config().await {
                     log("ERROR", e);
                     return Json(ApiResponse {
                         success: false,
@@ -222,7 +220,6 @@ pub async fn post_control(State(state): State<AppState>, Json(req): Json<Control
                         data: None,
                     });
                 }
-            }
 
             let args: &[&str] = match a {
                 "start" => &["start", "on"],

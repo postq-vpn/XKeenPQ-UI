@@ -35,7 +35,7 @@ import {
   IconX,
 } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { apiCall } from '../../lib/api'
 import { useAppActions } from '../../lib/store'
 import type { ProxySubscriptionInfo, XraySubscription, XraySubscriptionServer } from '../../lib/types'
@@ -864,6 +864,8 @@ interface ModalProps {
   reloadKey?: number
   /** Элементы справа в заголовке блока (режим страницы). */
   headerExtra?: ReactNode
+  /** Список подписок загружен (режим страницы) — родитель решает, показать ли окно первого запуска. */
+  onLoaded?: (subs: XraySubscription[]) => void
   /** Вызывается после изменения файлов outbounds, чтобы перечитать конфиги. */
   onChanged: () => void
   /** Открыть «Добавить подключение» (сервер или подписка). */
@@ -877,7 +879,18 @@ function serversBadge(sub: XraySubscription) {
 }
 
 /** Серверы и подписки Xray. */
-export function XraySubscriptionsModal({ open: openProp, onOpenChange, onChanged, onAddNew, asPage, reloadKey, headerExtra }: ModalProps) {
+export function XraySubscriptionsModal({
+  open: openProp,
+  onOpenChange,
+  onChanged,
+  onAddNew,
+  asPage,
+  reloadKey,
+  headerExtra,
+  onLoaded,
+}: ModalProps) {
+  const onLoadedRef = useRef(onLoaded)
+  onLoadedRef.current = onLoaded
   const open = asPage || openProp
   const { showToast } = useAppActions()
   const [subs, setSubs] = useState<XraySubscription[]>([])
@@ -900,6 +913,7 @@ export function XraySubscriptionsModal({ open: openProp, onOpenChange, onChanged
         const res = await apiCall<ApiResult & { subscriptions?: XraySubscription[] }>('GET', 'subscriptions')
         if (!res.success) throw new Error(res.error)
         setSubs(res.subscriptions ?? [])
+        onLoadedRef.current?.(res.subscriptions ?? [])
       } catch (e: any) {
         showToast(`Ошибка загрузки подписок: ${e.message}`, 'error')
       } finally {

@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from 'react'
-import { Component, lazy, useEffect, useState } from 'react'
+import { Component, lazy, Suspense, useEffect, useState } from 'react'
 import { showToast } from './store'
 
 export function lazyLoad<T extends ComponentType<any>>(factory: () => Promise<Record<string, T>>, name: string) {
@@ -19,8 +19,14 @@ class ChunkErrorBoundary extends Component<{ children: ReactNode }, { failed: bo
   }
 }
 
+/** Граница для компонентов из `lazyLoad`: пока часть грузится, остальной интерфейс не замирает,
+ * а сбой загрузки показывает сообщение вместо пустой страницы. */
 export function LazyBoundary({ children }: { children: ReactNode }) {
-  return <ChunkErrorBoundary>{children}</ChunkErrorBoundary>
+  return (
+    <ChunkErrorBoundary>
+      <Suspense fallback={null}>{children}</Suspense>
+    </ChunkErrorBoundary>
+  )
 }
 
 export function useLazyMount(open: boolean, delay = 200) {

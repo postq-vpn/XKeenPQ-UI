@@ -45,4 +45,3 @@ export function createBaseSetup(options: { fold?: boolean } = {}): Extension[] {
 }
 
 export const baseSetup: Extension[] = createBaseSetup()
-export const baseSetupNoFold: Extension[] = createBaseSetup({ fold: false })
