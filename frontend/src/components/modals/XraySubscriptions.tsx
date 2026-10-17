@@ -8,27 +8,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
 import { Label } from '@/components/ui/label'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
-import { Switch } from '@/components/ui/switch'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
+  IconAlertCircle,
   IconDatabase,
   IconDeviceFloppy,
   IconFilter,
   IconInfoCircle,
   IconPencil,
-  IconRoute,
   IconPlus,
   IconRefresh,
   IconTrash,
@@ -39,9 +37,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { apiCall } from '../../lib/api'
 import { useAppActions } from '../../lib/store'
 import type { ProxySubscriptionInfo, XraySubscription, XraySubscriptionServer } from '../../lib/types'
-import { FlagPicker } from './FlagPicker'
-import { filterHiddenServers, HiddenServersToggle, isHiddenServer, useShowHiddenServers } from './HiddenServers'
-import { ActionButton, formatDateTime, formatRelativeTime, formatTraffic, LoadingTable, ProviderBadge } from './SubscriptionTableParts'
+import { withoutAutoServers } from './AutoServers'
+import { ActionButton, formatDateTime, formatTraffic, LoadingTable, ProviderBadge } from './SubscriptionTableParts'
 
 /** Подписка всегда запрашивается с этим User-Agent (backend: subscriptions::USER_AGENT). */
 export const XRAY_USER_AGENT = 'Netcraze'
@@ -61,6 +58,7 @@ interface ApiResult {
 
 interface PreviewServer {
   tag: string
+  name?: string
   protocol: string
   address?: string
   port?: number
@@ -168,7 +166,6 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
   const [form, setForm] = useState(initial)
   const [tab, setTab] = useState<string>(initialTab)
   const device = useRouterDevice()
-  const [filterEnable, setFilterEnable] = useState(() => !!(initial.filter || initial.exclude_filter || initial.exclude_type))
   const [preview, setPreview] = useState<PreviewResult | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [busy, setBusy] = useState<'preview' | 'save' | null>(null)
@@ -176,40 +173,20 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
   const [tagTouched, setTagTouched] = useState(isEdit)
 
   // Фильтры выключенного блока не отправляем, но сохраняем введённое.
-  const payload = useMemo(() => (filterEnable ? form : { ...form, filter: '', exclude_filter: '', exclude_type: '' }), [form, filterEnable])
+  // Фильтра подключений нет: подписка всегда отдаёт все серверы.
+  const payload = useMemo(() => ({ ...form, filter: '', exclude_filter: '', exclude_type: '' }), [form])
 
   function update<K extends keyof XraySubscription>(key: K, value: XraySubscription[K]) {
     if (key === 'tag') setTagTouched(true)
-    setForm((prev) => {
-      const next = { ...prev, [key]: value }
-      // Теги серверов начинаются с названия подписки: переименовали — переносим отключения.
-      if (key === 'tag')
-        next.disabled_servers = prev.disabled_servers.map((t) =>
-          t.startsWith(`${prev.tag}--`) ? `${value}--${t.slice(prev.tag.length + 2)}` : t
-        )
-      return next
-    })
+    setForm((prev) => ({ ...prev, [key]: value }))
     setPreview(null)
     setPreviewError(null)
   }
 
-  // Переключение сервера не меняет ответ подписки, поэтому предпросмотр не сбрасываем.
-  function setServerEnabled(tag: string, enabled: boolean) {
-    setForm((prev) => ({
-      ...prev,
-      disabled_servers: enabled ? prev.disabled_servers.filter((t) => t !== tag) : [...prev.disabled_servers, tag],
-    }))
-  }
-
-  const isServerEnabled = (tag: string) => !form.disabled_servers.includes(tag)
-  const [showHidden, setShowHidden] = useShowHiddenServers()
-  const previewList = filterHiddenServers(preview?.servers ?? [], (s) => !isServerEnabled(s.tag), showHidden)
-  const enabledCount = preview?.servers.filter((s) => isServerEnabled(s.tag)).length ?? 0
-
   // «--» отделяет имя сервера в теге, в названии подписки его быть не должно.
   const tagValid = /^[A-Za-z0-9_-]{1,64}$/.test(form.tag.trim()) && !form.tag.includes('--')
   const canSubmit = !busy && tagValid && /^https?:\/\//i.test(form.url.trim()) && !!form.hwid.trim()
-  const canSave = canSubmit && (!preview || enabledCount > 0)
+  const canSave = canSubmit && (!preview || preview.servers.length > 0)
 
   useEffect(() => {
     // Новая подписка: сразу загружаем её, чтобы подставить название и тег.
@@ -226,21 +203,13 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
       const res = await apiCall<ApiResult & Partial<PreviewResponse>>('POST', 'subscriptions/preview', { ...payload, auto_tag: autoTag })
       if (!res.success) throw new Error(res.error)
       const suggested = autoTag ? res.suggested_tag : undefined
-      const firstLoad = !isEdit && !preview
-      setForm((prev) => {
-        const tag = suggested && suggested !== prev.tag ? suggested : prev.tag
-        let disabled = prev.disabled_servers.map((t) =>
-          tag !== prev.tag && t.startsWith(`${prev.tag}--`) ? `${tag}--${t.slice(prev.tag.length + 2)}` : t
-        )
-        // Новая подписка: служебные серверы («Россия», «авто», «тест»…) сразу отключены, как сделает backend.
-        if (firstLoad) {
-          const servers = res.servers ?? []
-          const hidden = servers.filter((s) => isHiddenServer(s.tag.startsWith(`${tag}--`) ? s.tag.slice(tag.length + 2) : s.tag))
-          if (hidden.length < servers.length) disabled = [...new Set([...disabled, ...hidden.map((s) => s.tag)])]
-        }
-        return { ...prev, title: res.title ?? prev.title, tag, disabled_servers: disabled }
-      })
-      setPreview({ servers: res.servers ?? [], skipped: res.skipped ?? [], userinfo: res.userinfo })
+      setForm((prev) => ({
+        ...prev,
+        title: res.title ?? prev.title,
+        tag: suggested && suggested !== prev.tag ? suggested : prev.tag,
+        disabled_servers: [],
+      }))
+      setPreview({ servers: withoutAutoServers(res.servers), skipped: res.skipped ?? [], userinfo: res.userinfo })
     } catch (e: any) {
       setPreview(null)
       setPreviewError(e.message || 'Не удалось получить подписку')
@@ -285,11 +254,7 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
             </TabsTrigger>
             <TabsTrigger value="servers" className="text-sm">
               Серверы
-              {preview && (
-                <ProviderBadge>
-                  {enabledCount === preview.servers.length ? enabledCount : `${enabledCount}/${preview.servers.length}`}
-                </ProviderBadge>
-              )}
+              {preview && <ProviderBadge>{preview.servers.length}</ProviderBadge>}
             </TabsTrigger>
           </TabsList>
           {tab === 'servers' && (
@@ -475,64 +440,6 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
                 </div>
               </div>
             </fieldset>
-
-            <fieldset className="border-border rounded-lg border px-4 pt-1.5 pb-4">
-              <legend className="flex items-center gap-2 px-1 text-sm font-medium">
-                Фильтр подключений
-                <Switch
-                  size="sm"
-                  checked={filterEnable}
-                  onCheckedChange={(v) => {
-                    setFilterEnable(v)
-                    setPreview(null)
-                    setPreviewError(null)
-                  }}
-                />
-              </legend>
-              {filterEnable && (
-                <div className="grid gap-2 pt-1">
-                  <div className="grid gap-1.5">
-                    <Label className="text-xs">По названию (включить)</Label>
-                    <InputGroup className="h-8">
-                      <InputGroupInput
-                        value={form.filter}
-                        onChange={(e) => update('filter', e.target.value)}
-                        placeholder="my-good-proxy"
-                        className="text-xs"
-                      />
-                      <InputGroupAddon align="inline-end" className="gap-1 px-2 py-1 text-xs has-[>button]:mr-0">
-                        <FlagPicker value={form.filter} onAdd={(next) => update('filter', next)} />
-                        REGEX
-                      </InputGroupAddon>
-                    </InputGroup>
-                  </div>
-                  <div className="grid gap-1.5">
-                    <Label className="text-xs">По названию (исключить)</Label>
-                    <InputGroup className="h-8">
-                      <InputGroupInput
-                        value={form.exclude_filter}
-                        onChange={(e) => update('exclude_filter', e.target.value)}
-                        placeholder="my-bad-proxy"
-                        className="text-xs"
-                      />
-                      <InputGroupAddon align="inline-end" className="gap-1 px-2 py-1 text-xs has-[>button]:mr-0">
-                        <FlagPicker value={form.exclude_filter} onAdd={(next) => update('exclude_filter', next)} />
-                        REGEX
-                      </InputGroupAddon>
-                    </InputGroup>
-                  </div>
-                  <div className="grid gap-1.5">
-                    <Label className="text-xs">По типу (исключить)</Label>
-                    <Input
-                      value={form.exclude_type}
-                      onChange={(e) => update('exclude_type', e.target.value)}
-                      placeholder="trojan|vmess"
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                </div>
-              )}
-            </fieldset>
           </div>
         </TabsContent>
 
@@ -549,54 +456,11 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
                 <span>Трафик: {formatTraffic(toSubscriptionInfo(preview.userinfo))}</span>
                 {!!preview.userinfo?.expire && <span>Истекает: {formatDateTime(preview.userinfo.expire)}</span>}
               </div>
-              <div className="border-border flex items-center justify-between gap-2 border-b px-3 py-1.5 text-xs">
-                <span className="flex items-center gap-1">
-                  Включено {enabledCount} из {preview.servers.length}
-                  <HintIcon>Отключённые серверы не попадут в конфигурацию и останутся отключёнными после обновлений подписки</HintIcon>
-                </span>
-                <HiddenServersToggle count={previewList.hidden} show={showHidden} onChange={setShowHidden} />
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  disabled={enabledCount === preview.servers.length}
-                  onClick={() => setForm((prev) => ({ ...prev, disabled_servers: [] }))}
-                >
-                  Включить все
-                </Button>
-              </div>
-              {previewList.visible.map((s) => {
-                const enabled = isServerEnabled(s.tag)
-                const isLast = enabled && enabledCount === 1
-                return (
-                  <div
-                    key={s.tag}
-                    className={cn(
-                      'border-border/50 hover:bg-muted/30 flex items-center gap-2 border-b px-3 py-1.5 text-xs last:border-b-0',
-                      isLast ? 'cursor-not-allowed' : 'cursor-pointer',
-                      !enabled && 'opacity-50'
-                    )}
-                    title={isLast ? 'Должен остаться хотя бы один сервер' : undefined}
-                    onClick={() => !isLast && setServerEnabled(s.tag, !enabled)}
-                  >
-                    <Switch
-                      size="sm"
-                      checked={enabled}
-                      disabled={isLast}
-                      aria-label={s.tag}
-                      onClick={(e) => e.stopPropagation()}
-                      onCheckedChange={(v) => setServerEnabled(s.tag, v)}
-                    />
-                    <Badge className="shrink-0 bg-blue-500/10! px-1.5 text-[10px] tracking-wider text-blue-400 uppercase">
-                      {s.protocol}
-                    </Badge>
-                    <span className={cn('truncate font-medium', !enabled && 'line-through')}>{s.tag}</span>
-                    <span className="text-muted-foreground ml-auto shrink-0 font-mono">
-                      {s.address}
-                      {s.port ? `:${s.port}` : ''}
-                    </span>
-                  </div>
-                )
-              })}
+              {preview.servers.map((s) => (
+                <div key={s.tag} className="border-border/50 flex items-center gap-2 border-b px-3 py-1.5 text-xs last:border-b-0">
+                  <span className="truncate font-medium">{s.name ?? s.tag.slice(s.tag.indexOf('--') + 2)}</span>
+                </div>
+              ))}
               {preview.skipped.map((e) => (
                 <div
                   key={e}
@@ -662,6 +526,44 @@ export function usePing() {
   return { results, ping }
 }
 
+const DAY_MS = 86_400_000
+/** За сколько дней до окончания подписки предупреждать о продлении. */
+const EXPIRY_WARN_DAYS = 5
+
+function pluralDays(n: number) {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return 'день'
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'дня'
+  return 'дней'
+}
+
+/** «До конца подписки: N дней»; за 5 дней и меньше — оранжевый значок с напоминанием продлить. */
+function SubscriptionExpiry({ expire }: { expire: number }) {
+  const days = Math.ceil((expire * 1000 - Date.now()) / DAY_MS)
+  const expired = days <= 0
+  const text = expired ? 'Подписка закончилась' : `До конца подписки: ${days} ${pluralDays(days)}`
+  if (days > EXPIRY_WARN_DAYS) return <span className="text-muted-foreground tabular-nums">{text}</span>
+
+  return (
+    <Popover>
+      <PopoverTrigger
+        openOnHover
+        delay={100}
+        render={<button type="button" className="flex cursor-help items-center gap-1.5 text-orange-400 tabular-nums" />}
+      >
+        <IconAlertCircle className="size-4 shrink-0" />
+        {text}
+      </PopoverTrigger>
+      <PopoverContent side="bottom" className="w-64 text-xs">
+        {expired
+          ? 'Срок подписки истёк — серверы перестанут работать. Продлите подписку, затем обновите её здесь.'
+          : `Подписка закончится ${formatDateTime(expire)}. Продлите её, чтобы VPN не отключился.`}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export function PingBadge({ result }: { result?: PingResult }) {
   if (!result) return null
   if (result.loading) return <Spinner className="size-3.5 shrink-0" />
@@ -678,28 +580,13 @@ export function PingBadge({ result }: { result?: PingResult }) {
   )
 }
 
-function ProxyBadge() {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <span className="shrink-0 cursor-help rounded-full border border-green-500/40 bg-green-500/15 px-2 py-0.5 text-[11px] text-green-400" />
-        }
-      >
-        Для прокси
-      </TooltipTrigger>
-      <TooltipContent className="max-w-xs">
-        Все правила маршрутизации, которые ведут в прокси, панель автоматически направляет на эту подписку
-      </TooltipContent>
-    </Tooltip>
-  )
-}
-
-export const serverName = (sub: XraySubscription, tag: string) => (tag.startsWith(`${sub.tag}--`) ? tag.slice(sub.tag.length + 2) : tag)
+/** Имя сервера для показа: из подписки как есть (с флагом), иначе — часть тега после `<подписка>--`. */
+export const serverName = (sub: XraySubscription, tag: string) =>
+  sub.server_list?.find((s) => s.tag === tag)?.name ?? (tag.startsWith(`${sub.tag}--`) ? tag.slice(sub.tag.length + 2) : tag)
 
 /** Сервер, который сейчас работает под тегом подписки (как в backend `active_server`). */
 export function activeServerTag(sub: XraySubscription) {
-  const enabled = (sub.server_list ?? []).filter((s) => !s.disabled)
+  const enabled = withoutAutoServers(sub.server_list)
   return enabled.find((s) => s.tag === sub.primary)?.tag ?? enabled[0]?.tag ?? ''
 }
 
@@ -715,8 +602,7 @@ export function XrayServerPicker({ sub, onDone, onSkip }: PickerProps) {
   const { results, ping } = usePing()
   const [selected, setSelected] = useState(sub.primary)
   const [saving, setSaving] = useState(false)
-  // Отключённые (скрытые) серверы выбрать нельзя — показываем только включённые.
-  const servers = useMemo(() => (sub.server_list ?? []).filter((s) => !s.disabled), [sub])
+  const servers = useMemo(() => withoutAutoServers(sub.server_list), [sub])
   const pinging = Object.values(results).some((r) => r.loading)
 
   async function runPing() {
@@ -759,13 +645,7 @@ export function XrayServerPicker({ sub, onDone, onSkip }: PickerProps) {
       </div>
 
       <div className="bg-input-background min-h-0 flex-1 overflow-auto">
-        {servers.length === 0 && (
-          <div className="text-muted-foreground p-4 text-xs">
-            {(sub.server_list ?? []).length > 0
-              ? 'Все серверы отключены — включите нужные на вкладке «Серверы»'
-              : 'Список серверов ещё не получен'}
-          </div>
-        )}
+        {servers.length === 0 && <div className="text-muted-foreground p-4 text-xs">Список серверов ещё не получен</div>}
         <RadioGroup value={selected} onValueChange={setSelected} className="gap-0">
           {servers.map((s) => (
             <div
@@ -777,13 +657,8 @@ export function XrayServerPicker({ sub, onDone, onSkip }: PickerProps) {
               onClick={() => setSelected(s.tag)}
             >
               <RadioGroupItem value={s.tag} aria-label={serverName(sub, s.tag)} />
-              <Badge className="shrink-0 bg-blue-500/10! px-1.5 text-[10px] tracking-wider text-blue-400 uppercase">{s.protocol}</Badge>
               <span className="truncate font-medium">{serverName(sub, s.tag)}</span>
               <span className="ml-auto flex shrink-0 items-center gap-3">
-                <span className="text-muted-foreground hidden font-mono text-xs sm:inline">
-                  {s.address}
-                  {s.port ? `:${s.port}` : ''}
-                </span>
                 <span className="w-16 text-right">
                   <PingBadge result={results[s.tag]} />
                 </span>
@@ -794,10 +669,6 @@ export function XrayServerPicker({ sub, onDone, onSkip }: PickerProps) {
       </div>
 
       <p className="text-muted-foreground border-border shrink-0 border-t px-3 py-2 text-xs">
-        Выбранный сервер работает под тегом <code>{sub.tag}</code>.{' '}
-        {sub.proxy
-          ? 'Правила маршрутизации, ведущие в прокси, панель направляет на него сама.'
-          : 'Чтобы на него автоматически шли проксируемые правила маршрутизации, сделайте подписку «Для прокси».'}{' '}
         Сменить сервер можно позже на вкладке «Серверы».
       </p>
 
@@ -872,12 +743,6 @@ interface ModalProps {
   onAddNew: () => void
 }
 
-type ModalTab = 'servers' | 'subscriptions'
-
-function serversBadge(sub: XraySubscription) {
-  return sub.total_servers && sub.total_servers !== sub.servers ? `${sub.servers ?? 0}/${sub.total_servers}` : (sub.servers ?? 0)
-}
-
 /** Серверы и подписки Xray. */
 export function XraySubscriptionsModal({
   open: openProp,
@@ -895,7 +760,6 @@ export function XraySubscriptionsModal({
   const { showToast } = useAppActions()
   const [subs, setSubs] = useState<XraySubscription[]>([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<ModalTab>('servers')
   const [updatingTags, setUpdatingTags] = useState<string[]>([])
   const [savingServers, setSavingServers] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
@@ -925,35 +789,27 @@ export function XraySubscriptionsModal({
 
   useEffect(() => {
     if (!open) return
-    if (!asPage) setTab('servers')
     void load(asPage && reloadKey !== undefined && reloadKey > 0)
   }, [open, load, asPage, reloadKey])
 
-  // Пинг всех серверов при заходе на вкладку «Серверы».
+  // Пинг всех серверов после загрузки списка.
   useEffect(() => {
-    if (open && !loading && tab === 'servers') void ping(subs.flatMap((s) => s.server_list ?? []))
+    if (open && !loading) void ping(subs.flatMap((s) => withoutAutoServers(s.server_list)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, loading, tab, ping])
+  }, [open, loading, ping])
 
   const needle = filter.trim().toLowerCase()
-  const [showHidden, setShowHidden] = useShowHiddenServers()
-  const filteredSubs = useMemo(
-    () => (needle ? subs.filter((s) => s.tag.toLowerCase().includes(needle) || s.url.toLowerCase().includes(needle)) : subs),
-    [subs, needle]
-  )
   const serverGroups = useMemo(
     () =>
       subs
         .map((sub) => {
-          const matched = (sub.server_list ?? []).filter(
-            (s) => !needle || s.tag.toLowerCase().includes(needle) || (s.address ?? '').toLowerCase().includes(needle)
+          const servers = withoutAutoServers(sub.server_list).filter(
+            (s) => !needle || serverName(sub, s.tag).toLowerCase().includes(needle)
           )
-          // При поиске показываем всё найденное, иначе — скрываем служебные, кроме активного.
-          const { visible, hidden } = filterHiddenServers(matched, (s) => s.disabled, showHidden || !!needle, [activeServerTag(sub)])
-          return { sub, servers: visible, hidden }
+          return { sub, servers }
         })
         .filter((g) => !needle || g.servers.length > 0),
-    [subs, needle, showHidden]
+    [subs, needle]
   )
 
   const replaceSub = (next: XraySubscription) => setSubs((prev) => prev.map((s) => (s.tag === next.tag ? next : s)))
@@ -980,31 +836,6 @@ export function XraySubscriptionsModal({
     }
   }
 
-  async function setDisabledServers(sub: XraySubscription, disabled: string[]) {
-    // Оптимистично: переключатель реагирует сразу, при ошибке возвращаем как было.
-    replaceSub({
-      ...sub,
-      disabled_servers: disabled,
-      server_list: sub.server_list?.map((s) => ({ ...s, disabled: disabled.includes(s.tag) })),
-    })
-    setSavingServers(sub.tag)
-    try {
-      const res = await apiCall<ApiResult & { subscription?: XraySubscription }>('POST', 'subscriptions/servers', {
-        tag: sub.tag,
-        disabled_servers: disabled,
-      })
-      if (!res.success || !res.subscription) throw new Error(res.error)
-      replaceSub(res.subscription)
-      if (res.restart_error) showToast(`Не удалось перезапустить Xray: ${res.restart_error}`, 'error')
-      onChanged()
-    } catch (e: any) {
-      replaceSub(sub)
-      showToast(e.message || 'Не удалось сохранить', 'error')
-    } finally {
-      setSavingServers(null)
-    }
-  }
-
   async function refresh(tags: string[], tag?: string) {
     setUpdatingTags(tags)
     try {
@@ -1018,22 +849,6 @@ export function XraySubscriptionsModal({
       if (res.changed) onChanged()
     } catch (e: any) {
       showToast(`Ошибка обновления: ${e.message}`, 'error')
-    } finally {
-      setUpdatingTags([])
-    }
-  }
-
-  async function makeProxy(tag: string) {
-    setUpdatingTags([`proxy:${tag}`])
-    try {
-      const res = await apiCall<ApiResult & { subscriptions?: XraySubscription[] }>('POST', 'subscriptions/proxy', { tag })
-      if (res.subscriptions) setSubs(res.subscriptions)
-      if (!res.success) throw new Error(res.error)
-      showToast(`Проксируемые правила маршрутизации направлены на ${tag}`)
-      if (res.restart_error) showToast(`Не удалось перезапустить Xray: ${res.restart_error}`, 'error')
-      onChanged()
-    } catch (e: any) {
-      showToast(e.message, 'error')
     } finally {
       setUpdatingTags([])
     }
@@ -1067,34 +882,45 @@ export function XraySubscriptionsModal({
     onChanged()
   }
 
-  const updatedCell = (sub: XraySubscription) =>
-    sub.last_error ? (
-      <Tooltip>
-        <TooltipTrigger render={<span className="cursor-help text-red-400" />}>Ошибка</TooltipTrigger>
-        <TooltipContent className="max-w-sm break-words">{sub.last_error}</TooltipContent>
-      </Tooltip>
-    ) : sub.last_update ? (
-      <span title={formatDateTime(sub.last_update)}>{formatRelativeTime(sub.last_update)}</span>
-    ) : (
-      <span className="text-red-400">Не обновлялось</span>
-    )
-
   const serversTab = (
     <div className="flex flex-col">
       {serverGroups.length === 0 && <div className="text-muted-foreground py-8 text-center text-[13px]">Нет совпадений</div>}
-      {serverGroups.map(({ sub, servers, hidden }) => {
-        const all = sub.server_list ?? []
-        const enabledCount = all.filter((s) => !s.disabled).length
+      {serverGroups.map(({ sub, servers }) => {
+        const all = withoutAutoServers(sub.server_list)
         const busy = savingServers === sub.tag
         const active = activeServerTag(sub)
         return (
           <div key={sub.tag}>
             <div className="border-border bg-muted/30 sticky top-0 z-10 grid grid-cols-[1fr_auto_1fr] items-center gap-2 border-b px-4 py-1.5 text-xs backdrop-blur-sm">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="truncate font-medium">{subscriptionTitle(sub)}</span>
-                {sub.title && <span className="text-muted-foreground font-mono">{sub.tag}</span>}
-                {sub.proxy && <ProxyBadge />}
-                <ProviderBadge>{all.length ? `${enabledCount}/${all.length}` : serversBadge(sub)}</ProviderBadge>
+              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5">
+                <div className="flex min-w-0 items-center gap-1">
+                  <span className="mr-1 truncate font-medium">{subscriptionTitle(sub)}</span>
+                  <ActionButton
+                    busy={updatingTags.includes(sub.tag)}
+                    icon={<IconRefresh className="size-4" />}
+                    onClick={() => void refresh([sub.tag], sub.tag)}
+                    disabled={isUpdating}
+                    aria-label="Обновить подписку"
+                    title="Обновить подписку"
+                  />
+                  <ActionButton
+                    busy={false}
+                    icon={<IconPencil className="size-4" />}
+                    onClick={() => openEditor(sub)}
+                    disabled={isUpdating}
+                    aria-label="Изменить подписку"
+                    title="Изменить подписку"
+                  />
+                  <ActionButton
+                    busy={false}
+                    icon={<IconTrash className="size-4" />}
+                    className="hover:text-destructive hover:bg-transparent!"
+                    onClick={() => setDeleting(sub.tag)}
+                    disabled={isUpdating}
+                    aria-label="Удалить подписку"
+                    title="Удалить подписку"
+                  />
+                </div>
                 {sub.last_error && (
                   <Tooltip>
                     <TooltipTrigger render={<span className="cursor-help text-red-400" />}>ошибка обновления</TooltipTrigger>
@@ -1103,74 +929,42 @@ export function XraySubscriptionsModal({
                 )}
                 {busy && <Spinner className="size-3.5" />}
               </div>
-              <HiddenServersToggle count={hidden} show={showHidden} onChange={setShowHidden} />
-              <div className="flex items-center justify-end gap-1">
-                <Button variant="ghost" size="xs" disabled={all.length === 0} onClick={() => void ping(all)}>
-                  <IconRefresh /> Пинг
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  disabled={busy || enabledCount === all.length}
-                  onClick={() => void setDisabledServers(sub, [])}
-                >
-                  Включить все
-                </Button>
-              </div>
+              <div className="flex justify-center">{!!sub.userinfo?.expire && <SubscriptionExpiry expire={sub.userinfo.expire} />}</div>
+              <Button
+                variant="ghost"
+                size="xs"
+                className="shrink-0 justify-self-end"
+                disabled={all.length === 0}
+                onClick={() => void ping(all)}
+              >
+                <IconRefresh /> Пинг
+              </Button>
             </div>
             {all.length === 0 && (
-              <div className="text-muted-foreground px-4 py-2 text-xs">
-                Список серверов ещё не получен — обновите подписку на вкладке «Подписки»
-              </div>
+              <div className="text-muted-foreground px-4 py-2 text-xs">Список серверов ещё не получен — обновите подписку</div>
             )}
             <RadioGroup value={active} onValueChange={(tag) => void selectServer(sub, tag)} disabled={busy} className="gap-0">
               {servers.map((s) => {
-                const enabled = !s.disabled
                 const isActive = s.tag === active
-                const isLast = enabled && enabledCount === 1
-                const toggle = (next: boolean) =>
-                  void setDisabledServers(sub, next ? sub.disabled_servers.filter((t) => t !== s.tag) : [...sub.disabled_servers, s.tag])
                 return (
                   <div
                     key={s.tag}
                     className={cn(
                       'border-border/50 hover:bg-muted/30 flex items-center gap-3 border-b px-4 py-1.5 text-[13px] last:border-b-0',
-                      enabled && !busy ? 'cursor-pointer' : 'cursor-default',
-                      isActive && 'bg-muted/30',
-                      !enabled && 'opacity-50'
+                      busy ? 'cursor-default' : 'cursor-pointer',
+                      isActive && 'bg-muted/30'
                     )}
-                    onClick={() => enabled && !busy && void selectServer(sub, s.tag)}
+                    onClick={() => !busy && void selectServer(sub, s.tag)}
                   >
-                    <RadioGroupItem value={s.tag} disabled={!enabled || busy} aria-label={`Выбрать ${serverName(sub, s.tag)}`} />
-                    <Badge className="shrink-0 bg-blue-500/10! px-1.5 text-[10px] tracking-wider text-blue-400 uppercase">
-                      {s.protocol}
-                    </Badge>
-                    <span className={cn('truncate font-medium', !enabled && 'line-through')}>{serverName(sub, s.tag)}</span>
+                    <RadioGroupItem value={s.tag} disabled={busy} aria-label={`Выбрать ${serverName(sub, s.tag)}`} />
+                    <span className="truncate font-medium">{serverName(sub, s.tag)}</span>
                     {isActive && !sub.primary && (
-                      <span
-                        className="text-muted-foreground shrink-0 text-[11px]"
-                        title="Сервер не выбран — используется первый включённый"
-                      >
+                      <span className="text-muted-foreground shrink-0 text-[11px]" title="Сервер не выбран — используется первый в списке">
                         авто
                       </span>
                     )}
-                    <span className="ml-auto flex shrink-0 items-center gap-3">
-                      <span className="text-muted-foreground hidden font-mono text-xs sm:inline">
-                        {s.address}
-                        {s.port ? `:${s.port}` : ''}
-                      </span>
-                      <span className="w-16 text-right">
-                        <PingBadge result={pings[s.tag]} />
-                      </span>
-                      <Switch
-                        size="sm"
-                        checked={enabled}
-                        disabled={isActive || isLast || busy}
-                        aria-label={`Включить ${serverName(sub, s.tag)}`}
-                        title={isActive ? 'Выбранный сервер нельзя отключить' : isLast ? 'Должен остаться хотя бы один сервер' : undefined}
-                        onClick={(e) => e.stopPropagation()}
-                        onCheckedChange={toggle}
-                      />
+                    <span className="ml-auto w-16 shrink-0 text-right">
+                      <PingBadge result={pings[s.tag]} />
                     </span>
                   </div>
                 )
@@ -1182,97 +976,9 @@ export function XraySubscriptionsModal({
     </div>
   )
 
-  const subscriptionsTab = (
-    <Table className="min-w-100 text-[13px]! [&_td:first-child]:pl-4 [&_td:last-child]:pr-4 [&_th:first-child]:pl-4 [&_th:last-child]:pr-4">
-      <TableHeader>
-        <TableRow>
-          {['Название', 'Трафик', 'Истекает', 'Обновлено'].map((header) => (
-            <TableHead key={header}>{header}</TableHead>
-          ))}
-          <TableHead className="w-24 text-right">
-            <ActionButton
-              busy={updatingTags.length > 1}
-              icon={<IconRefresh className="size-4" />}
-              onClick={() => void refresh(subs.map((s) => s.tag))}
-              disabled={isUpdating}
-              aria-label="Обновить все"
-            />
-          </TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {filteredSubs.length === 0 ? (
-          <TableRow>
-            <TableCell colSpan={5} className="text-muted-foreground py-8 text-center">
-              Нет совпадений
-            </TableCell>
-          </TableRow>
-        ) : (
-          filteredSubs.map((sub) => (
-            <TableRow key={sub.tag}>
-              <TableCell className="max-w-72">
-                <div className="flex items-center gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{subscriptionTitle(sub)}</div>
-                    {sub.title && <div className="text-muted-foreground truncate font-mono text-xs">{sub.tag}</div>}
-                  </div>
-                  {sub.proxy && <ProxyBadge />}
-                  <ProviderBadge>{serversBadge(sub)}</ProviderBadge>
-                </div>
-              </TableCell>
-              <TableCell className="min-w-42 font-medium tabular-nums">{formatTraffic(toSubscriptionInfo(sub.userinfo))}</TableCell>
-              <TableCell className="tabular-nums">{formatDateTime(sub.userinfo?.expire || undefined)}</TableCell>
-              <TableCell className="tabular-nums">{updatedCell(sub)}</TableCell>
-              <TableCell className="text-right">
-                <div className="flex items-center justify-end gap-0.5">
-                  {!sub.proxy && (
-                    <ActionButton
-                      busy={updatingTags.length === 1 && updatingTags[0] === `proxy:${sub.tag}`}
-                      icon={<IconRoute className="size-4" />}
-                      onClick={() => void makeProxy(sub.tag)}
-                      disabled={isUpdating}
-                      aria-label="Сделать подпиской для прокси"
-                      title="Сделать подпиской для прокси: проксируемые правила маршрутизации перейдут на неё"
-                    />
-                  )}
-                  <ActionButton
-                    busy={false}
-                    icon={<IconPencil className="size-4" />}
-                    onClick={() => openEditor(sub)}
-                    disabled={isUpdating}
-                    aria-label="Изменить"
-                  />
-                  <ActionButton
-                    busy={updatingTags.length === 1 && updatingTags[0] === sub.tag}
-                    icon={<IconRefresh className="size-4" />}
-                    onClick={() => void refresh([sub.tag], sub.tag)}
-                    disabled={isUpdating}
-                    aria-label="Обновить"
-                  />
-                  <ActionButton
-                    busy={false}
-                    icon={<IconTrash className="size-4" />}
-                    className="hover:text-destructive hover:bg-transparent!"
-                    onClick={() => setDeleting(sub.tag)}
-                    disabled={isUpdating}
-                    aria-label="Удалить"
-                  />
-                </div>
-              </TableCell>
-            </TableRow>
-          ))
-        )}
-      </TableBody>
-    </Table>
-  )
-
   const body = (
-    <Tabs value={tab} onValueChange={(v) => setTab(v as ModalTab)} className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
       <div className="flex shrink-0 flex-wrap items-center gap-2">
-        <TabsList>
-          <TabsTrigger value="servers">Серверы</TabsTrigger>
-          <TabsTrigger value="subscriptions">Подписки</TabsTrigger>
-        </TabsList>
         <InputGroup className="min-w-40 flex-1">
           <InputGroupInput value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Фильтр" />
           <InputGroupAddon>
@@ -1312,13 +1018,10 @@ export function XraySubscriptionsModal({
             </EmptyContent>
           </Empty>
         ) : (
-          <>
-            <TabsContent value="servers">{serversTab}</TabsContent>
-            <TabsContent value="subscriptions">{subscriptionsTab}</TabsContent>
-          </>
+          serversTab
         )}
       </div>
-    </Tabs>
+    </div>
   )
 
   return (
@@ -1374,11 +1077,8 @@ export function XraySubscriptionsModal({
             <AlertDialogTitle>Удалить подписку {deleting}?</AlertDialogTitle>
             <AlertDialogDescription>
               Файл с её серверами будет удалён, Xray перезапустится.{' '}
-              {subs.find((s) => s.tag === deleting)?.proxy
-                ? subs.length > 1
-                  ? 'Это подписка «Для прокси»: проксируемые правила маршрутизации перейдут на следующую подписку.'
-                  : 'Это последняя подписка: правила маршрутизации, которые на неё ссылаются, останутся без сервера — поправьте их вручную.'
-                : 'Правила маршрутизации, которые ссылаются на её серверы, будут направлены на подписку «Для прокси».'}
+              {subs.length === 1 &&
+                'Это последняя подписка: правила маршрутизации, которые на неё ссылаются, останутся без сервера — поправьте их вручную.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

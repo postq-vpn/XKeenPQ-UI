@@ -8,19 +8,22 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { IconCheck, IconChevronDown, IconDatabase, IconFileCode, IconFileText } from '@tabler/icons-react'
+import { IconCheck, IconChevronDown, IconDatabase, IconFileCode, IconFileText, IconTerminal2 } from '@tabler/icons-react'
 import { useAppContext } from '../../lib/store'
 import { isXkeenFile, tabLabel } from './ConfigPanel'
 
 interface Props {
-  /** Открытый файл; null — открыта страница «Подписка и серверы». */
+  /** Открытый файл; null — открыта страница «Подписка и серверы» или журнал. */
   activeFile: string | null
+  /** Открыт журнал. */
+  logActive: boolean
   onSelectServers: () => void
+  onSelectLog: () => void
   onSelectFile: (file: string) => void
 }
 
 /** Меню «Технические файлы»: переключает главный блок на подписки или на редактор выбранного файла. */
-export function TechFilesMenu({ activeFile, onSelectServers, onSelectFile }: Props) {
+export function TechFilesMenu({ activeFile, logActive, onSelectServers, onSelectLog, onSelectFile }: Props) {
   const { state } = useAppContext({ includeConfigs: true })
   const xray = state.configs.filter((c) => !isXkeenFile(c.file))
   const xkeen = state.configs.filter((c) => isXkeenFile(c.file))
@@ -32,7 +35,7 @@ export function TechFilesMenu({ activeFile, onSelectServers, onSelectFile }: Pro
         render={
           <Button variant="outline">
             <IconFileCode data-icon="inline-start" />
-            {activeFile ? tabLabel(activeFile) : 'Технические файлы'}
+            {activeFile ? tabLabel(activeFile) : logActive ? 'Журнал' : 'Технические файлы'}
             <IconChevronDown />
           </Button>
         }
@@ -41,7 +44,11 @@ export function TechFilesMenu({ activeFile, onSelectServers, onSelectFile }: Pro
         <DropdownMenuGroup>
           <DropdownMenuItem onClick={onSelectServers}>
             <IconDatabase /> Подписка и серверы
-            {check(activeFile === null)}
+            {check(activeFile === null && !logActive)}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onSelectLog}>
+            <IconTerminal2 /> Журнал
+            {check(logActive)}
           </DropdownMenuItem>
         </DropdownMenuGroup>
         {xray.length > 0 && (

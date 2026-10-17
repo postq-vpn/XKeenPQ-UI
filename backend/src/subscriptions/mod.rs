@@ -22,7 +22,7 @@ use axum::response::{IntoResponse, Json};
 use regex_lite::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -71,8 +71,7 @@ pub struct Subscription {
     /// Теги серверов, отключённых пользователем. Тег строится из имени сервера, поэтому
     /// отключение переживает обновления и смену порядка серверов в подписке.
     pub disabled_servers: Vec<String>,
-    /// Служебные серверы («Россия», «авто», «обход», «тест»…), уже отключённые автоматически при
-    /// первом появлении. Если пользователь включил такой сервер, повторно он не отключается.
+    /// Устарело: служебные серверы, отключённые автоматически прошлыми версиями.
     pub auto_disabled: Vec<String>,
     /// Выбранный сервер (тег). В файл добавляется outbound с тегом подписки — его копия;
     /// на него ссылаются правила маршрутизации. Пусто — первый включённый сервер.
@@ -98,6 +97,9 @@ pub struct Subscription {
     /// Последний полученный список серверов (включая отключённые): позволяет включать и
     /// отключать серверы без повторного запроса подписки. Клиенту не отдаётся, см. `to_api`.
     pub cached_outbounds: Vec<Value>,
+    /// Имена серверов из подписки как есть (с флагами-эмодзи, которые в тег не попадают),
+    /// по части тега после `<tag>--`. Клиенту отдаётся полем `name` в `server_list`.
+    pub server_names: BTreeMap<String, String>,
 }
 
 impl Default for Subscription {
@@ -125,6 +127,7 @@ impl Default for Subscription {
             total_servers: 0,
             userinfo: None,
             cached_outbounds: vec![],
+            server_names: BTreeMap::new(),
         }
     }
 }
@@ -187,6 +190,7 @@ impl Subscription {
         self.total_servers = from.total_servers;
         self.userinfo = from.userinfo.clone();
         self.cached_outbounds = from.cached_outbounds.clone();
+        self.server_names = from.server_names.clone();
         self.proxy = from.proxy;
     }
 
@@ -214,13 +218,20 @@ struct Store {
 }
 
 async fn load_store() -> Store {
-    match tokio::fs::read_to_string(SUBSCRIPTIONS_FILE).await {
+    let mut store: Store = match tokio::fs::read_to_string(SUBSCRIPTIONS_FILE).await {
         Ok(content) => serde_json::from_str(&content).unwrap_or_else(|e| {
             log("ERROR", format!("Ошибка парсинга {}: {}", SUBSCRIPTIONS_FILE, e));
             Store::default()
         }),
         Err(_) => Store::default(),
+    };
+    // Панель больше не отключает серверы: отключения из прошлых версий сбрасываются,
+    // файл outbounds пересоберётся со всеми серверами при следующем обновлении.
+    for sub in &mut store.subscriptions {
+        sub.disabled_servers.clear();
+        sub.auto_disabled.clear();
     }
+    store
 }
 
 async fn save_store(store: &Store) -> Result<(), String> {
@@ -256,6 +267,8 @@ fn now() -> i64 {
 struct Fetched {
     /// Все серверы после фильтров, включая отключённые пользователем.
     outbounds: Vec<Value>,
+    /// См. `Subscription::server_names`.
+    names: BTreeMap<String, String>,
     errors: Vec<String>,
     userinfo: Option<UserInfo>,
     title: Option<String>,
@@ -296,9 +309,14 @@ async fn apply_cached(sub: &mut Subscription) -> Result<bool, String> {
     write_outbounds(&sub.tag, &with_active_alias(sub, enabled)).await
 }
 
-/// Серверы для записи в файл: без отключённых пользователем.
+/// Серверы для записи в файл: без отключённых пользователем и без авто-выбора
+/// (их может хранить список, полученный до появления `is_auto_server`).
 fn enabled_outbounds(sub: &Subscription, outbounds: &[Value]) -> Result<Vec<Value>, String> {
-    let enabled: Vec<Value> = outbounds.iter().filter(|o| !is_disabled(sub, o)).cloned().collect();
+    let enabled: Vec<Value> = outbounds
+        .iter()
+        .filter(|o| !is_disabled(sub, o) && !is_auto_outbound(sub, o))
+        .cloned()
+        .collect();
     if enabled.is_empty() {
         return Err("все серверы подписки отключены, включите хотя бы один".into());
     }
@@ -358,12 +376,13 @@ async fn fetch_subscription(state: &AppState, sub: &Subscription) -> Result<Fetc
         let hint = parsed.errors.first().map(|e| format!(" ({e})")).unwrap_or_default();
         return Err(format!("в ответе не найдено ни одного сервера{hint}"));
     }
-    let outbounds = build_outbounds(sub, parsed.proxies)?;
+    let (outbounds, names) = build_outbounds_named(sub, parsed.proxies)?;
     if outbounds.is_empty() {
         return Err("после применения фильтров не осталось ни одного сервера".into());
     }
     Ok(Fetched {
         outbounds,
+        names,
         errors: parsed.errors,
         userinfo,
         title: title::from_response(&title_headers, &body),
@@ -406,7 +425,16 @@ fn parse_userinfo(header: &str) -> UserInfo {
     info
 }
 
+#[cfg(test)]
 fn build_outbounds(sub: &Subscription, proxies: Vec<parser::ParsedProxy>) -> Result<Vec<Value>, String> {
+    build_outbounds_named(sub, proxies).map(|(outbounds, _)| outbounds)
+}
+
+/// Outbounds и исходные имена серверов (см. `Subscription::server_names`).
+fn build_outbounds_named(
+    sub: &Subscription,
+    proxies: Vec<parser::ParsedProxy>,
+) -> Result<(Vec<Value>, BTreeMap<String, String>), String> {
     let compile = |re: &str| {
         (!re.is_empty())
             .then(|| Regex::new(re))
@@ -425,8 +453,10 @@ fn build_outbounds(sub: &Subscription, proxies: Vec<parser::ParsedProxy>) -> Res
     let mut counters: HashMap<String, usize> = HashMap::new();
     let mut used = std::collections::HashSet::new();
     let mut result = vec![];
+    let mut names = BTreeMap::new();
     for proxy in proxies {
-        if include.as_ref().is_some_and(|re| !re.is_match(&proxy.name))
+        if is_auto_server(&proxy.name)
+            || include.as_ref().is_some_and(|re| !re.is_match(&proxy.name))
             || exclude.as_ref().is_some_and(|re| re.is_match(&proxy.name))
             || protocol_names(&proxy.outbound)
                 .iter()
@@ -450,6 +480,10 @@ fn build_outbounds(sub: &Subscription, proxies: Vec<parser::ParsedProxy>) -> Res
             tag = format!("{base}--{count}");
         }
         used.insert(tag.clone());
+        let display = proxy.name.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !display.is_empty() {
+            names.insert(tag[sub.tag.len() + 2..].to_string(), display);
+        }
 
         let mut outbound = serde_json::Map::new();
         outbound.insert("tag".into(), json!(tag));
@@ -469,7 +503,7 @@ fn build_outbounds(sub: &Subscription, proxies: Vec<parser::ParsedProxy>) -> Res
         }
         result.push(outbound);
     }
-    Ok(result)
+    Ok((result, names))
 }
 
 /// Имя протокола в Xray и его короткий псевдоним из ссылок (для `exclude_type`).
@@ -605,37 +639,20 @@ async fn sync_auto_tags(store: &mut Store) -> bool {
     changed
 }
 
-/// Слова в названии служебных серверов, которые скрываются и отключаются по умолчанию
-/// (как `HIDDEN_SERVER_RE` во frontend/HiddenServers.tsx).
-const HIDDEN_SERVER_WORDS: [&str; 8] = ["россия", "авто", "обход", "тест", "russia", "auto", "bypass", "test"];
+/// Слова в названии серверов авто-выбора: такие серверы отбрасываются при разборе подписки
+/// и не попадают ни в список, ни в файл outbounds (как `AUTO_SERVER_RE` во frontend/AutoServers.ts).
+const AUTO_SERVER_WORDS: [&str; 2] = ["авто", "auto"];
 
-fn is_hidden_server(name: &str) -> bool {
+fn is_auto_server(name: &str) -> bool {
     let name = name.to_lowercase();
-    HIDDEN_SERVER_WORDS.iter().any(|w| name.contains(w))
+    AUTO_SERVER_WORDS.iter().any(|w| name.contains(w))
 }
 
-/// Отключает служебные серверы при их первом появлении. Выбранный сервер не трогаем, и если
-/// служебные — все серверы подписки, ничего не отключаем, чтобы подписка не осталась пустой.
-fn auto_disable_hidden(sub: &mut Subscription, outbounds: &[Value]) {
+fn is_auto_outbound(sub: &Subscription, outbound: &Value) -> bool {
     let prefix = format!("{}--", sub.tag);
-    let tags: Vec<&str> = outbounds.iter().filter_map(|o| o["tag"].as_str()).collect();
-    let hidden: Vec<&str> = tags
-        .iter()
-        .copied()
-        .filter(|t| is_hidden_server(t.strip_prefix(&prefix).unwrap_or(t)))
-        .collect();
-    if hidden.len() == tags.len() {
-        return;
-    }
-    for tag in hidden {
-        if tag == sub.primary || sub.auto_disabled.iter().any(|t| t == tag) {
-            continue;
-        }
-        sub.auto_disabled.push(tag.to_string());
-        if !sub.disabled_servers.iter().any(|t| t == tag) {
-            sub.disabled_servers.push(tag.to_string());
-        }
-    }
+    outbound["tag"]
+        .as_str()
+        .is_some_and(|tag| is_auto_server(tag.strip_prefix(&prefix).unwrap_or(tag)))
 }
 
 /// Обновляет подписку и её статус. Возвращает true, если файл outbounds изменился.
@@ -643,7 +660,6 @@ async fn refresh(state: &AppState, sub: &mut Subscription) -> Result<bool, Strin
     sub.last_attempt = now();
     let result = async {
         let fetched = fetch_subscription(state, sub).await?;
-        auto_disable_hidden(sub, &fetched.outbounds);
         let enabled = enabled_outbounds(sub, &fetched.outbounds)?;
         let count = enabled.len();
         let changed = write_outbounds(&sub.tag, &with_active_alias(sub, enabled)).await?;
@@ -658,6 +674,7 @@ async fn refresh(state: &AppState, sub: &mut Subscription) -> Result<bool, Strin
             sub.servers = enabled;
             sub.total_servers = fetched.outbounds.len();
             sub.cached_outbounds = fetched.outbounds.clone();
+            sub.server_names = fetched.names.clone();
             sub.userinfo = fetched.userinfo;
             if let Some(t) = fetched.title.clone() {
                 sub.title = t;
@@ -772,13 +789,22 @@ fn server_summary(sub: &Subscription, outbound: &Value) -> Value {
             .or_else(|| settings.pointer(&format!("/servers/0/{key}")))
     };
     let (address, port) = (field("address"), field("port"));
-    json!({
+    let prefix = format!("{}--", sub.tag);
+    let name = outbound["tag"]
+        .as_str()
+        .and_then(|t| t.strip_prefix(&prefix))
+        .and_then(|rest| sub.server_names.get(rest));
+    let mut summary = json!({
         "tag": outbound["tag"],
         "protocol": outbound["protocol"],
         "address": address,
         "port": port,
         "disabled": is_disabled(sub, outbound),
-    })
+    });
+    if let Some(name) = name {
+        summary["name"] = json!(name);
+    }
+    summary
 }
 
 /// Подписка для клиента: вместо полных outbounds — краткий список серверов.
@@ -786,7 +812,13 @@ fn to_api(sub: &Subscription) -> Value {
     let mut value = serde_json::to_value(sub).unwrap();
     if let Some(obj) = value.as_object_mut() {
         obj.remove("cached_outbounds");
-        let servers: Vec<Value> = sub.cached_outbounds.iter().map(|o| server_summary(sub, o)).collect();
+        obj.remove("server_names");
+        let servers: Vec<Value> = sub
+            .cached_outbounds
+            .iter()
+            .filter(|o| !is_auto_outbound(sub, o))
+            .map(|o| server_summary(sub, o))
+            .collect();
         obj.insert("server_list".into(), json!(servers));
     }
     value
@@ -876,6 +908,7 @@ pub async fn post_preview(State(state): State<AppState>, Json(req): Json<Preview
                 sub.primary = move_tag(&sub.primary);
                 sub.tag = suggested_tag.clone();
             }
+            sub.server_names = std::mem::take(&mut fetched.names);
             let servers: Vec<Value> = fetched.outbounds.iter().map(|o| server_summary(&sub, o)).collect();
             Json(json!({
                 "success": true,
@@ -1238,20 +1271,38 @@ mod tests {
     }
 
     #[test]
-    fn hidden_servers_disabled_once() {
-        let out = |n: &str| json!({ "tag": format!("s--{n}"), "protocol": "vless" });
-        let outbounds = vec![out("NL"), out("Россия"), out("Авто-выбор"), out("Тестовый"), out("DE")];
+    fn server_names_keep_flags() {
         let mut sub = Subscription { tag: "s".into(), ..Default::default() };
-        auto_disable_hidden(&mut sub, &outbounds);
-        assert_eq!(sub.disabled_servers, ["s--Россия", "s--Авто-выбор", "s--Тестовый"]);
-        // Пользователь включил «Россия» — при следующем обновлении она остаётся включённой.
-        sub.disabled_servers.retain(|t| t != "s--Россия");
-        auto_disable_hidden(&mut sub, &outbounds);
-        assert_eq!(sub.disabled_servers, ["s--Авто-выбор", "s--Тестовый"]);
-        // Все серверы служебные — не отключаем ничего.
-        let mut only = Subscription { tag: "s".into(), ..Default::default() };
-        auto_disable_hidden(&mut only, &[out("Россия"), out("Тест")]);
-        assert!(only.disabled_servers.is_empty());
+        let (out, names) = build_outbounds_named(&sub, vec![proxy("🇳🇱  Нидерланды Ai"), proxy("🇳🇱 Нидерланды Ai")]).unwrap();
+        assert_eq!(out[0]["tag"], "s--Нидерланды Ai");
+        assert_eq!(names["Нидерланды Ai"], "🇳🇱 Нидерланды Ai");
+        assert_eq!(names["Нидерланды Ai--2"], "🇳🇱 Нидерланды Ai");
+        sub.server_names = names;
+        sub.cached_outbounds = out;
+        let api = to_api(&sub);
+        assert_eq!(api["server_list"][0]["name"], "🇳🇱 Нидерланды Ai");
+        assert!(api.get("server_names").is_none());
+    }
+
+    #[test]
+    fn auto_servers_dropped() {
+        let sub = Subscription { tag: "s".into(), ..Default::default() };
+        let proxies = vec![proxy("NL"), proxy("⚡ Авто-выбор"), proxy("Auto (best)"), proxy("DE")];
+        let out = build_outbounds(&sub, proxies).unwrap();
+        let tags: Vec<_> = out.iter().map(|o| o["tag"].as_str().unwrap()).collect();
+        assert_eq!(tags, ["s--NL", "s--DE"]);
+
+        // Список, полученный старой версией, ещё хранит авто-выбор — в файл и API он не попадает.
+        let cached = Subscription {
+            tag: "s".into(),
+            cached_outbounds: vec![
+                json!({ "tag": "s--Авто", "protocol": "vless" }),
+                json!({ "tag": "s--NL", "protocol": "vless" }),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(enabled_outbounds(&cached, &cached.cached_outbounds).unwrap().len(), 1);
+        assert_eq!(to_api(&cached)["server_list"].as_array().unwrap().len(), 1);
     }
 
     #[test]

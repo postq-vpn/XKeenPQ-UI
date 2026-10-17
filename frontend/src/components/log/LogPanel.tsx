@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { IconChevronDown, IconFile, IconFilter, IconMaximize, IconMinimize, IconPlus, IconTrash, IconX } from '@tabler/icons-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { LOCAL_ROUTER_ID, isRouterSelectable, routerId } from '../../lib/multi-routers/model'
 import { useRoutersStore } from '../../lib/multi-routers/store'
@@ -20,7 +20,14 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '
 const LOG_FILES = ['error.log', 'access.log']
 const MAX_LINES = 1000
 
-export function LogPanel() {
+interface LogPanelProps {
+  /** Блок главной страницы: растягивается на всю высоту вместо полосы внизу. */
+  asPage?: boolean
+  /** Элементы справа в заголовке (меню «Технические файлы»). */
+  headerExtra?: ReactNode
+}
+
+export function LogPanel({ asPage, headerExtra }: LogPanelProps = {}) {
   const timezone = useSettings((s) => s.timezone)
   const multiRouter = useSettings((s) => s.multiRouter)
   const routers = useRoutersStore((s) => s.routers)
@@ -303,7 +310,7 @@ export function LogPanel() {
 
   return (
     <TooltipProvider delayDuration={500}>
-      <div className="relative h-70 w-full pb-3 md:shrink-0">
+      <div className={cn('relative w-full', asPage ? 'h-[70dvh] flex-1' : 'h-70 pb-3 md:shrink-0')}>
         <div
           ref={backdropRef}
           className="fixed inset-0 z-40 bg-black/50 opacity-0"
@@ -408,6 +415,7 @@ export function LogPanel() {
                       />
                       <TooltipContent>{isFullscreen ? 'Свернуть' : 'Развернуть'}</TooltipContent>
                     </Tooltip>
+                    {headerExtra}
                   </div>
                 </div>
               )}

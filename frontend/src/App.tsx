@@ -267,15 +267,16 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
 
   const refreshConfigsSilently = useCallback(() => loadConfigs(true), [loadConfigs])
 
-  // Главный блок: «Подписка и серверы» или редактор файла, выбранного в меню «Технические файлы».
-  const [view, setViewState] = useState<'servers' | 'files'>(() => {
+  // Главный блок: «Подписка и серверы», журнал или редактор файла, выбранного в меню «Технические файлы».
+  const [view, setViewState] = useState<View>(() => {
     try {
-      return localStorage.getItem('ui:view') === 'files' ? 'files' : 'servers'
+      const saved = localStorage.getItem('ui:view')
+      return saved === 'files' || saved === 'log' ? saved : 'servers'
     } catch {
       return 'servers'
     }
   })
-  const setView = useCallback((next: 'servers' | 'files') => {
+  const setView = useCallback((next: View) => {
     setViewState(next)
     try {
       localStorage.setItem('ui:view', next)
@@ -293,7 +294,13 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     [setView]
   )
   const techMenu = (
-    <TechFilesMenu activeFile={view === 'files' ? activeFile : null} onSelectServers={() => setView('servers')} onSelectFile={openFile} />
+    <TechFilesMenu
+      activeFile={view === 'files' ? activeFile : null}
+      logActive={view === 'log'}
+      onSelectServers={() => setView('servers')}
+      onSelectLog={() => setView('log')}
+      onSelectFile={openFile}
+    />
   )
   const [subsReloadKey, setSubsReloadKey] = useState(0)
   const [welcome, setWelcome] = useState(false)
@@ -455,7 +462,9 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
               onActiveFileChange={setActiveFile}
             />
           </div>
-          <LogPanel />
+          <div className={cn('flex flex-col md:min-h-[70dvh]', view !== 'log' && 'hidden')}>
+            <LogPanel asPage headerExtra={techMenu} />
+          </div>
         </div>
       </main>
       <Toast />
@@ -471,6 +480,8 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     </div>
   )
 }
+
+type View = 'servers' | 'files' | 'log'
 
 type AuthState = 'loading' | 'login' | 'setup' | 'authenticated'
 

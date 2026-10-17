@@ -34,6 +34,8 @@ export interface ProxySubscriptionInfo {
 /** Сервер подписки Xray (краткая сводка, без ключей). */
 export interface XraySubscriptionServer {
   tag: string
+  /** Имя из подписки как есть, с флагом-эмодзи (в теге флага нет). */
+  name?: string
   protocol: string
   address?: string
   port?: number
