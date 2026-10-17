@@ -9,8 +9,6 @@ pub const APP_CONFIG: &str = "/opt/etc/xkeen/xkeen-ui.json";
 pub const APP_CONFIG_LEGACY: &str = "/opt/share/www/XKeen-UI/config.json";
 pub const DEFAULT_ACCESS_LOG: &str = "/opt/var/log/xray/access.log";
 pub const DEFAULT_ERROR_LOG: &str = "/opt/var/log/xray/error.log";
-pub const MIHOMO_CONF: &str = "/opt/etc/mihomo/config.yaml";
-pub const MIHOMO_CONF_DIR: &str = "/opt/etc/mihomo";
 pub const S24XRAY: &str = "/opt/etc/init.d/S24xray";
 pub const S99XKEEN: &str = "/opt/etc/init.d/S99xkeen";
 pub const S99XKEEN_UI: &str = "/opt/etc/init.d/S99xkeen-ui";
@@ -99,7 +97,6 @@ pub fn access_log_path() -> String {
 
 #[derive(Clone)]
 pub struct AppState {
-    pub core: Arc<RwLock<CoreInfo>>,
     pub settings: Arc<RwLock<AppSettings>>,
     pub init_file: Arc<RwLock<Option<String>>>,
     pub http_client: reqwest::Client,
@@ -124,13 +121,6 @@ pub struct UpdateChecker {
     pub core_latest_tag: Arc<RwLock<Option<String>>>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct CoreInfo {
-    pub name: String,
-    pub conf_dir: String,
-    pub is_json: bool,
-}
-
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct GuiSettings {
@@ -147,7 +137,6 @@ pub struct UpdaterSettings {
     pub backup_core: bool,
     pub github_proxy: Vec<String>,
     pub xray_repo: String,
-    pub mihomo_repo: String,
 }
 
 impl Default for UpdaterSettings {
@@ -155,7 +144,6 @@ impl Default for UpdaterSettings {
         Self {
             github_proxy: vec!["https://gh-proxy.com".into(), "https://ghfast.top".into()],
             xray_repo: "https://github.com/XTLS/Xray-core".into(),
-            mihomo_repo: "https://github.com/MetaCubeX/mihomo".into(),
             backup_core: true,
             auto_check_ui: true,
             auto_check_core: true,
@@ -175,34 +163,6 @@ impl Default for LogSettings {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ClashApiSettings {
-    pub ping_url: String,
-    pub ping_timeout: u32,
-    pub show_source_name: bool,
-    pub hide_unavailable_proxies: bool,
-    pub hide_unavailable_proxies_counter: u32,
-    pub proxy_sort_order: String,
-    pub auto_dns: String,
-    pub close_connections_on_apply: bool,
-}
-
-impl Default for ClashApiSettings {
-    fn default() -> Self {
-        Self {
-            ping_url: "https://www.gstatic.com/generate_204".into(),
-            ping_timeout: 5000,
-            show_source_name: false,
-            hide_unavailable_proxies: false,
-            hide_unavailable_proxies_counter: 3,
-            proxy_sort_order: "default".into(),
-            auto_dns: "disabled".into(),
-            close_connections_on_apply: false,
-        }
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct AuthSettings {
@@ -215,7 +175,6 @@ pub struct AuthSettings {
 #[serde(default)]
 pub struct AppendConfigPaths {
     pub xray: Vec<String>,
-    pub mihomo: Vec<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -238,7 +197,6 @@ pub struct AppSettings {
     pub gui: GuiSettings,
     pub updater: UpdaterSettings,
     pub log: LogSettings,
-    pub clash_api: ClashApiSettings,
     pub append_config_paths: AppendConfigPaths,
     pub auth: AuthSettings,
     pub plugins: PluginsSettings,
@@ -258,8 +216,6 @@ impl<'de> Deserialize<'de> for AppSettings {
             #[serde(default)]
             log: LogSettings,
             #[serde(default)]
-            clash_api: ClashApiSettings,
-            #[serde(default)]
             append_config_paths: AppendConfigPaths,
             #[serde(default)]
             auth: AuthSettings,
@@ -276,7 +232,6 @@ impl<'de> Deserialize<'de> for AppSettings {
             gui: raw.gui,
             updater: raw.updater,
             log: raw.log,
-            clash_api: raw.clash_api,
             append_config_paths: raw.append_config_paths,
             auth: raw.auth,
             plugins: raw.plugins,

@@ -90,42 +90,42 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.13 0.028 261.692);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.13 0.028 261.692);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.13 0.028 261.692);
-  --primary: oklch(0.488 0.243 264.376);
-  --primary-foreground: oklch(0.97 0.014 254.604);
-  --secondary: oklch(0.967 0.001 286.375);
-  --secondary-foreground: oklch(0.21 0.006 285.885);
-  --muted: #f1f5f9;
-  --muted-foreground: oklch(0.551 0.027 264.364);
-  --accent: oklch(0.967 0.003 264.542);
-  --accent-foreground: oklch(0.21 0.034 264.665);
-  --menu-active-bg: rgba(59, 130, 246, 0.15);
+  --background: #ffffff;
+  --foreground: #212023;
+  --card: #ffffff;
+  --card-foreground: #212023;
+  --popover: #ffffff;
+  --popover-foreground: #212023;
+  --primary: #ff2181;
+  --primary-foreground: #ffffff;
+  --secondary: #ffe9f2;
+  --secondary-foreground: #ff2181;
+  --muted: #f8f8f8;
+  --muted-foreground: #77757a;
+  --accent: rgba(255, 33, 129, 0.08);
+  --accent-foreground: #212023;
+  --menu-active-bg: rgba(255, 33, 129, 0.1);
   --menu-destructive-active-bg: rgba(239, 68, 68, 0.2);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.928 0.006 264.531);
-  --input: oklch(0.928 0.006 264.531);
-  --ring: oklch(0.707 0.022 261.325);
-  --chart-1: oklch(0.7137 0.1434 254.62);
-  --chart-2: oklch(0.623 0.214 259.815);
-  --chart-3: oklch(0.546 0.245 262.881);
-  --chart-4: oklch(0.488 0.243 264.376);
-  --chart-5: oklch(0.424 0.199 265.638);
+  --border: #ececee;
+  --input: #e4e4e7;
+  --ring: rgba(255, 33, 129, 0.5);
+  --chart-1: #ff7ab5;
+  --chart-2: #ff2181;
+  --chart-3: #e81574;
+  --chart-4: #c40f60;
+  --chart-5: #9c0c4c;
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0.002 247.839);
-  --sidebar-foreground: oklch(0.13 0.028 261.692);
-  --sidebar-primary: oklch(0.546 0.245 262.881);
-  --sidebar-primary-foreground: oklch(0.97 0.014 254.604);
-  --sidebar-accent: oklch(0.488 0.243 264.376);
-  --sidebar-accent-foreground: oklch(0.97 0.014 254.604);
-  --sidebar-border: oklch(0.928 0.006 264.531);
-  --sidebar-ring: oklch(0.707 0.022 261.325);
-  --input-background: oklch(1 0 0);
-  --input-background-hover: oklch(0.967 0.003 264.542);
+  --sidebar: #ffffff;
+  --sidebar-foreground: #212023;
+  --sidebar-primary: #ff2181;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ffe9f2;
+  --sidebar-accent-foreground: #ff2181;
+  --sidebar-border: #ececee;
+  --sidebar-ring: rgba(255, 33, 129, 0.5);
+  --input-background: #f8f8f8;
+  --input-background-hover: #f2f2f3;
   --status-badge-bg: #f8fafc;
   --status-badge-color: #475569;
   --status-badge-border: #cbd5e1;
@@ -148,55 +148,55 @@
     0 0 6px 1px color-mix(in srgb, var(--status-badge-stopped-color) 20%, transparent),
     inset 0 0 6px 0px color-mix(in srgb, var(--status-badge-stopped-color) 6%, transparent);
   --log-badge-debug-bg: #fff;
-  --log-badge-debug-color: #0f172a;
+  --log-badge-debug-color: #212023;
   --log-badge-debug-border: #cbd5e1;
   --log-badge-info-bg: #f1f5f9;
-  --log-badge-info-color: #0f172a;
-  --log-badge-warn-bg: #0f172a;
+  --log-badge-info-color: #212023;
+  --log-badge-warn-bg: #212023;
   --log-badge-warn-color: #f8fafc;
   --log-badge-error-bg: #ef4444;
   --log-badge-error-color: #fff;
 }
 
 .dark {
-  --background: oklch(0.13 0.028 261.692);
-  --foreground: oklch(0.985 0.002 247.839);
-  --card: oklch(0.2077 0.0398 265.75);
-  --card-foreground: oklch(0.985 0.002 247.839);
-  --popover: oklch(0.21 0.034 264.665);
-  --popover-foreground: oklch(0.985 0.002 247.839);
-  --primary: oklch(0.42 0.18 266);
-  --primary-foreground: oklch(0.97 0.014 254.604);
-  --secondary: oklch(0.274 0.006 286.033);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.278 0.033 256.848);
-  --muted-foreground: oklch(0.707 0.022 261.325);
-  --accent: rgba(59, 130, 246, 0.15);
-  --accent-foreground: oklch(0.985 0.002 247.839);
-  --menu-active-bg: rgba(59, 130, 246, 0.15);
+  --background: #04000f;
+  --foreground: #f4eefc;
+  --card: rgba(16, 8, 34, 0.72);
+  --card-foreground: #f4eefc;
+  --popover: #0e0620;
+  --popover-foreground: #f4eefc;
+  --primary: #cf00a3;
+  --primary-foreground: #ffffff;
+  --secondary: rgba(255, 255, 255, 0.06);
+  --secondary-foreground: #f4eefc;
+  --muted: rgba(255, 255, 255, 0.06);
+  --muted-foreground: rgba(215, 194, 240, 0.66);
+  --accent: rgba(207, 0, 163, 0.15);
+  --accent-foreground: #f4eefc;
+  --menu-active-bg: rgba(207, 0, 163, 0.15);
   --menu-destructive-active-bg: rgba(239, 68, 68, 0.2);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(0.2795 0.0368 260.03);
-  --input: oklch(0.2795 0.0368 260.03);
-  --ring: oklch(0.551 0.027 264.364);
-  --chart-1: oklch(0.809 0.105 251.813);
-  --chart-2: oklch(0.623 0.214 259.815);
-  --chart-3: oklch(0.546 0.245 262.881);
-  --chart-4: oklch(0.488 0.243 264.376);
-  --chart-5: oklch(0.424 0.199 265.638);
-  --sidebar: oklch(0.21 0.034 264.665);
-  --sidebar-foreground: oklch(0.985 0.002 247.839);
-  --sidebar-primary: oklch(0.623 0.214 259.815);
-  --sidebar-primary-foreground: oklch(0.97 0.014 254.604);
-  --sidebar-accent: oklch(0.42 0.18 266);
-  --sidebar-accent-foreground: oklch(0.97 0.014 254.604);
-  --sidebar-border: oklch(0.551 0.027 264.364);
-  --sidebar-ring: oklch(0.551 0.027 264.364);
-  --input-background: oklch(0.1666 0.0331 266.08);
-  --input-background-hover: oklch(0.2077 0.0398 265.75);
-  --status-badge-bg: #1e293b;
-  --status-badge-color: #94a3b8;
-  --status-badge-border: #334155;
+  --border: rgba(255, 255, 255, 0.09);
+  --input: rgba(255, 255, 255, 0.09);
+  --ring: rgba(207, 0, 163, 0.6);
+  --chart-1: #f0b3e6;
+  --chart-2: #e592d3;
+  --chart-3: #cf00a3;
+  --chart-4: #931b79;
+  --chart-5: #6b1459;
+  --sidebar: #0e0620;
+  --sidebar-foreground: #f4eefc;
+  --sidebar-primary: #cf00a3;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #931b79;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.09);
+  --sidebar-ring: rgba(207, 0, 163, 0.6);
+  --input-background: rgba(8, 4, 22, 0.9);
+  --input-background-hover: rgba(16, 8, 34, 0.95);
+  --status-badge-bg: rgba(255, 255, 255, 0.06);
+  --status-badge-color: #9685ac;
+  --status-badge-border: rgba(255, 255, 255, 0.09);
   --status-badge-stopped-bg: #2a1215;
   --status-badge-stopped-color: #ef4444;
   --status-badge-stopped-border: #4a1f24;
@@ -215,18 +215,91 @@
   --status-stopped-glow:
     0 0 10px 2px color-mix(in srgb, var(--status-badge-stopped-color) 35%, transparent),
     inset 0 0 8px 0px color-mix(in srgb, var(--status-badge-stopped-color) 10%, transparent);
-  --log-badge-debug-bg: #080e1d;
+  --log-badge-debug-bg: #08001a;
   --log-badge-debug-color: #fff;
-  --log-badge-debug-border: #1e293b;
-  --log-badge-info-bg: #1e293b;
+  --log-badge-debug-border: #2a1d45;
+  --log-badge-info-bg: #2a1d45;
   --log-badge-info-color: #fff;
   --log-badge-warn-bg: #f8fafc;
-  --log-badge-warn-color: #0f172a;
+  --log-badge-warn-color: #212023;
   --log-badge-error-bg: #7f1d1d;
   --log-badge-error-color: #fff;
 }
 
+/* Фирменная шкала PostQ: светлая — розовая от #ff2181, тёмная — маджента от #cf00a3. */
+:root {
+  --brand-50: #fff0f6;
+  --brand-100: #ffe9f2;
+  --brand-200: #ffc6df;
+  --brand-300: #ff5aa3;
+  --brand-400: #ff2181;
+  --brand-500: #ff2181;
+  --brand-600: #e81574;
+  --brand-700: #c40f60;
+  --brand-800: #9c0c4c;
+  --brand-900: #7a0b3d;
+  --brand-950: #4a0524;
+}
+.dark {
+  --brand-50: #fdf0fb;
+  --brand-100: #fadff5;
+  --brand-200: #f0b3e6;
+  --brand-300: #e592d3;
+  --brand-400: #de6cc8;
+  --brand-500: #cf00a3;
+  --brand-600: #b0008b;
+  --brand-700: #931b79;
+  --brand-800: #6b1459;
+  --brand-900: #4a0e3e;
+  --brand-950: #2a0523;
+}
+
 @theme inline {
+  /* Синие палитры Tailwind (blue/sky/indigo/cyan) ведут на фирменную шкалу — все акценты интерфейса в цветах PostQ. */
+  --color-blue-50: var(--brand-50);
+  --color-blue-100: var(--brand-100);
+  --color-blue-200: var(--brand-200);
+  --color-blue-300: var(--brand-300);
+  --color-blue-400: var(--brand-400);
+  --color-blue-500: var(--brand-500);
+  --color-blue-600: var(--brand-600);
+  --color-blue-700: var(--brand-700);
+  --color-blue-800: var(--brand-800);
+  --color-blue-900: var(--brand-900);
+  --color-blue-950: var(--brand-950);
+  --color-sky-50: var(--brand-50);
+  --color-sky-100: var(--brand-100);
+  --color-sky-200: var(--brand-200);
+  --color-sky-300: var(--brand-300);
+  --color-sky-400: var(--brand-400);
+  --color-sky-500: var(--brand-500);
+  --color-sky-600: var(--brand-600);
+  --color-sky-700: var(--brand-700);
+  --color-sky-800: var(--brand-800);
+  --color-sky-900: var(--brand-900);
+  --color-sky-950: var(--brand-950);
+  --color-indigo-50: var(--brand-50);
+  --color-indigo-100: var(--brand-100);
+  --color-indigo-200: var(--brand-200);
+  --color-indigo-300: var(--brand-300);
+  --color-indigo-400: var(--brand-400);
+  --color-indigo-500: var(--brand-500);
+  --color-indigo-600: var(--brand-600);
+  --color-indigo-700: var(--brand-700);
+  --color-indigo-800: var(--brand-800);
+  --color-indigo-900: var(--brand-900);
+  --color-indigo-950: var(--brand-950);
+  --color-cyan-50: var(--brand-50);
+  --color-cyan-100: var(--brand-100);
+  --color-cyan-200: var(--brand-200);
+  --color-cyan-300: var(--brand-300);
+  --color-cyan-400: var(--brand-400);
+  --color-cyan-500: var(--brand-500);
+  --color-cyan-600: var(--brand-600);
+  --color-cyan-700: var(--brand-700);
+  --color-cyan-800: var(--brand-800);
+  --color-cyan-900: var(--brand-900);
+  --color-cyan-950: var(--brand-950);
   --font-sans: 'Inter Variable', sans-serif, 'TwemojiMozilla';
   --font-mono: ui-monospace, 'JetBrains Mono Variable', monospace, 'TwemojiMozilla';
   --color-sidebar-ring: var(--sidebar-ring);
@@ -304,7 +377,7 @@
   }
   html {
     @apply font-sans;
-    scrollbar-color: #334155 transparent;
+    scrollbar-color: var(--border) transparent;
   }
 }
 
@@ -442,4 +515,57 @@
   .cm-scroller {
     -webkit-overflow-scrolling: touch;
   }
+}
+
+/* Фон тёмной темы PostQ: розовое свечение сверху. */
+.dark .app-background {
+  background:
+    radial-gradient(60% 45% at 50% 0%, rgba(207, 0, 163, 0.2), transparent 70%),
+    var(--background);
+  background-attachment: fixed;
+}
+
+/* Основная кнопка действия в стиле PostQ. */
+.btn-brand {
+  background: #ff2181;
+  color: #fff;
+}
+.btn-brand:hover {
+  background: #e81574;
+}
+.dark .btn-brand {
+  background: linear-gradient(135deg, #cf00a3 0%, #931b79 100%);
+  box-shadow: 0 0 18px rgba(207, 0, 163, 0.35);
+}
+.dark .btn-brand:hover {
+  background: linear-gradient(135deg, #e01bb4 0%, #a32388 100%);
+}
+
+/* Логотип: в светлой теме знак розовый, надпись тёмная; в тёмной — градиент из атрибута fill. */
+:root:not(.dark) .postq-logo-mark {
+  fill: #ff2181;
+}
+:root:not(.dark) .postq-logo-text {
+  fill: #212023;
+}
+
+/* Подпись к логотипу «- XKeen UI»: в светлой теме как надпись логотипа, в тёмной — продолжение градиента. */
+/* Varela Round — для подписи к логотипу (латиница, нужна только «- XKeen UI»). */
+@font-face {
+  font-family: 'Varela Round';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('../node_modules/@fontsource/varela-round/files/varela-round-latin-400-normal.woff2') format('woff2');
+}
+
+.postq-logo-suffix {
+  font-family: 'Varela Round', 'Inter Variable', sans-serif;
+  color: #212023;
+}
+.dark .postq-logo-suffix {
+  background: linear-gradient(90deg, #d94fc2, #cf00a3);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }

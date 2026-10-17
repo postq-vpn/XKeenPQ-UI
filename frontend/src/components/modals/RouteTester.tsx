@@ -9,14 +9,14 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
-import { IconAlertTriangle, IconArrowRight, IconChevronDown, IconChevronUp, IconFileUpload, IconRoute, IconX } from '@tabler/icons-react'
+import { IconAlertTriangle, IconChevronDown, IconChevronUp, IconFileUpload, IconRoute, IconX } from '@tabler/icons-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { apiCall, buildClashHeaders, capitalize, clashFetch } from '../../lib/api'
+import { apiCall, capitalize } from '../../lib/api'
 import { useAppContext, useModalContext } from '../../lib/store'
 import { cn } from '../../lib/utils'
 
 type Network = 'tcp' | 'udp'
-type Core = 'mihomo' | 'xray'
+type Core = 'xray'
 type Outcome = 'matched' | 'default' | 'error'
 
 interface RouteTestRule {
@@ -44,7 +44,7 @@ interface RouteTestResult {
   rule: RouteTestRule | null
   balancer: RouteTestBalancer | null
   resolvedIps: string[]
-  dnsSource: 'mihomo' | 'doh' | null
+  dnsSource: 'doh' | null
   skipped: RouteTestSkipped[]
   error: string | null
 }
@@ -64,14 +64,9 @@ interface RouteTestRunResponse {
   warnings?: string[]
 }
 
-interface ProxyLite {
-  type?: string
-  now?: string
-}
-
 const MAX_TARGETS = 500
 const NO_INBOUND = '__none__'
-const DNS_SOURCE_LABELS: Record<string, string> = { mihomo: 'mihomo', doh: 'DoH' }
+const DNS_SOURCE_LABELS: Record<string, string> = { doh: 'DoH' }
 
 const IPV4_REGEX = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/
 const IPV6_REGEX =
@@ -90,28 +85,12 @@ function pluralizeTargets(n: number): string {
   return 'целей'
 }
 
-function resolveProxyChain(proxies: Record<string, ProxyLite | undefined>, name: string): string[] {
-  const chain = [name]
-  const visited = new Set([name])
-  let current = name
-  for (;;) {
-    const info = proxies[current]
-    if (!info?.now || visited.has(info.now)) break
-    chain.push(info.now)
-    visited.add(info.now)
-    current = info.now
-  }
-  return chain
-}
-
 function ResultRow({
   result,
-  chain,
   expanded,
   onToggle,
 }: {
   result: RouteTestResult
-  chain?: string[]
   expanded: boolean
   onToggle: () => void
 }) {
@@ -132,17 +111,6 @@ function ResultRow({
           {result.outcome === 'error' ? 'Ошибка' : (result.outbound ?? '—')}
         </Badge>
       </div>
-
-      {chain && chain.length > 1 && (
-        <div className="text-muted-foreground mt-1.5 flex flex-wrap items-center gap-1 text-xs">
-          {chain.map((name, i) => (
-            <span key={`${name}-${i}`} className="flex items-center gap-1">
-              {i > 0 && <IconArrowRight size={11} className="shrink-0" />}
-              <span className="truncate">{name}</span>
-            </span>
-          ))}
-        </div>
-      )}
 
       {result.outcome !== 'error' && (
         <div
@@ -201,9 +169,8 @@ function ResultRow({
 }
 
 export function RouteTesterModal() {
-  const { state, showToast } = useAppContext()
+  const { showToast } = useAppContext()
   const { modals, dispatch } = useModalContext()
-  const { clashApiPort, clashApiSecret, clashApiUnix } = state
 
   const close = () => dispatch({ type: 'SHOW_MODAL', modal: 'showRouteTestModal', show: false })
 
@@ -220,7 +187,6 @@ export function RouteTesterModal() {
   const [running, setRunning] = useState(false)
   const [results, setResults] = useState<RouteTestResult[] | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
-  const [chains, setChains] = useState<Record<string, string[]>>({})
   const [filter, setFilter] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
@@ -309,7 +275,6 @@ export function RouteTesterModal() {
     setRunning(true)
     setResults(null)
     setWarnings([])
-    setChains({})
     setFilter(null)
     setExpanded(new Set())
     const controller = new AbortController()
@@ -317,7 +282,7 @@ export function RouteTesterModal() {
     try {
       const res = await fetch('/api/route-test', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...buildClashHeaders(clashApiPort, clashApiSecret, clashApiUnix) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           targets,
           port: portNum,
@@ -355,44 +320,11 @@ export function RouteTesterModal() {
         setRunning(false)
       }
     }
-  }, [canRun, targets, portNum, network, sourceIpTrimmed, inboundTag, clashApiPort, clashApiSecret, clashApiUnix, showToast])
+  }, [canRun, targets, portNum, network, sourceIpTrimmed, inboundTag, showToast])
 
   function cancelRun() {
     abortRef.current?.abort()
   }
-
-  // Resolve mihomo's live proxy-group chain (e.g. Discord -> Auto -> Финляндия) for the outbounds
-  // that came back from the run. One bulk GET /clash/proxies, then walk `.now` locally — no
-  // per-name lookups, which used to 404 for proxy-provider members and spam the log.
-  useEffect(() => {
-    if (!modals.showRouteTestModal || !results || core !== 'mihomo' || !(clashApiPort || clashApiUnix)) return
-    const uniqueOutbounds = Array.from(new Set(results.filter((r) => r.outbound).map((r) => r.outbound as string)))
-    if (uniqueOutbounds.length === 0) return
-    let cancelled = false
-    ;(async () => {
-      let data: { proxies?: Record<string, ProxyLite> } | null = null
-      try {
-        data = await clashFetch<{ proxies?: Record<string, ProxyLite> }>(clashApiPort ?? '', 'proxies', {
-          secret: clashApiSecret,
-          unix: clashApiUnix ?? null,
-          retry: false,
-        })
-      } catch {
-        data = null
-      }
-      if (cancelled) return
-      const proxies = data?.proxies ?? {}
-      const next: Record<string, string[]> = {}
-      for (const name of uniqueOutbounds) {
-        const chain = resolveProxyChain(proxies, name)
-        if (chain.length > 1) next[name] = chain
-      }
-      setChains(next)
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [results, core, clashApiPort, clashApiSecret, clashApiUnix, modals.showRouteTestModal])
 
   const chipEntries = useMemo(() => {
     if (!results) return []
@@ -623,7 +555,6 @@ export function RouteTesterModal() {
                     <ResultRow
                       key={r.target}
                       result={r}
-                      chain={r.outbound ? chains[r.outbound] : undefined}
                       expanded={expanded.has(r.target)}
                       onToggle={() => toggleExpanded(r.target)}
                     />

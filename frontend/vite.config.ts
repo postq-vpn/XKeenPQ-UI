@@ -18,15 +18,6 @@ export default defineConfig(() => {
           ws: true,
         },
         '/ws': { target: `ws://192.168.1.1:1000`, ws: true },
-        '/clash': {
-          target: `http://192.168.1.1:1000`,
-          changeOrigin: true,
-        },
-        '/clash-ws': {
-          target: `ws://192.168.1.1:1000`,
-          ws: true,
-          changeOrigin: true,
-        },
       },
     },
     build: {

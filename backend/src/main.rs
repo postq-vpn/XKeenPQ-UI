@@ -3,12 +3,10 @@ mod auth;
 mod backuper;
 mod configs;
 mod controller;
-mod dns;
 mod frontend_embedder;
 mod geo;
 mod logger;
 mod route_test;
-mod provider_inspector;
 mod settings;
 mod subscriptions;
 mod system;
@@ -19,7 +17,7 @@ mod websocket;
 use crate::logger::{log, ts};
 use crate::types::*;
 use axum::http::StatusCode;
-use axum::routing::{any, get, post};
+use axum::routing::{get, post};
 use axum::{Router, middleware};
 
 use clap::builder::styling::{AnsiColor, Styles};
@@ -399,10 +397,16 @@ async fn main() {
         error_log
     );
 
-    let init_file = tokio::task::spawn_blocking(|| controller::find_init_file(true))
-        .await
-        .unwrap()
-        .or_else(|| {
+    let init_file = tokio::task::spawn_blocking(|| {
+        let path = controller::find_init_file(true);
+        if let Some(p) = &path {
+            controller::migrate_init_to_xray(p);
+        }
+        path
+    })
+    .await
+    .unwrap()
+    .or_else(|| {
             log("ERROR", "Не удалось найти файл инициализации XKeen".into());
             None
         });
@@ -423,7 +427,6 @@ async fn main() {
         .and_then(|json| json.get("xkeen")?.get("rci_token")?.as_str().map(String::from));
 
     let state = AppState {
-        core: Arc::new(RwLock::new(detect_core(init_file.as_deref()))),
         settings: Arc::new(RwLock::new(load_settings())),
         init_file: Arc::new(RwLock::new(init_file)),
         http_client: reqwest::Client::builder()
@@ -491,14 +494,6 @@ async fn main() {
         .route("/api/version", get(version::version_handler))
         .route("/api/system", get(system::get_system_stats))
         .route(
-            "/api/rule-providers",
-            get(provider_inspector::get_rule_providers_content).put(provider_inspector::put_rule_providers_content),
-        )
-        .route(
-            "/api/proxy-providers",
-            get(provider_inspector::get_proxy_provider_content).put(provider_inspector::put_proxy_provider_content),
-        )
-        .route(
             "/api/route-test",
             get(route_test::get_route_test_meta).post(route_test::post_route_test),
         )
@@ -516,19 +511,14 @@ async fn main() {
         .route("/api/subscriptions/primary", post(subscriptions::post_primary))
         .route("/api/subscriptions/device", get(subscriptions::get_device))
         .route("/api/subscriptions/proxy", post(subscriptions::post_proxy))
+        .route("/api/subscriptions/default-routing", get(subscriptions::get_default_routing))
         .route("/api/device-list", get(api_relay::get_device_list))
         .route("/api/update", post(updater::post_update))
         .route("/api/geo", get(geo::get_geo))
         .route("/api/geo/site", get(geo::get_geosite))
         .route("/api/geo/ip", get(geo::get_geoip))
-        .route(
-            "/api/dns",
-            get(dns::get_dns).post(dns::post_dns).delete(dns::delete_dns),
-        )
         .route("/api/auth/logout", post(auth::post_logout))
         .route("/api/auth/reset", post(auth::post_auth_reset))
-        .route("/clash/{*path}", any(api_relay::proxy_http))
-        .route("/clash-ws/{*path}", get(api_relay::proxy_ws))
         .route("/ws", get(websocket::ws_handler))
         .route_layer(middleware::from_fn({
             let state = state.clone();
@@ -568,25 +558,6 @@ fn get_arch() -> String {
     };
     let libc = if cfg!(target_env = "musl") { "musl" } else { "gnu" };
     format!("{}/{}", arch, libc)
-}
-
-fn detect_core(init_file: Option<&str>) -> CoreInfo {
-    let content = init_file
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .unwrap_or_default();
-    if content.contains("name_client=\"mihomo\"") {
-        CoreInfo {
-            name: "mihomo".into(),
-            conf_dir: MIHOMO_CONF_DIR.into(),
-            is_json: false,
-        }
-    } else {
-        CoreInfo {
-            name: "xray".into(),
-            conf_dir: XRAY_CONF_DIR.into(),
-            is_json: true,
-        }
-    }
 }
 
 fn load_settings() -> AppSettings {

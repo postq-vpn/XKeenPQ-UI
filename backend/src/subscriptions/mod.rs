@@ -1,4 +1,4 @@
-//! Подписки для Xray: аналог proxy-providers Mihomo.
+//! Подписки для Xray.
 //!
 //! Подписка периодически скачивается (с User-Agent и HWID-заголовками), ссылки превращаются
 //! в outbounds и пишутся в `04_outbounds_sub.<tag>.json`. Теги серверов: `<tag>--<имя>`;
@@ -8,6 +8,7 @@ mod device;
 mod parser;
 mod routing;
 mod selection;
+mod title;
 
 pub use device::get_device;
 pub use selection::{post_ping, post_primary};
@@ -19,7 +20,7 @@ use axum::response::{IntoResponse, Json};
 use regex_lite::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -57,7 +58,7 @@ pub struct Subscription {
     /// Регулярные выражения по имени сервера.
     pub filter: String,
     pub exclude_filter: String,
-    /// Типы через «|» (vless|vmess|trojan|ss|hysteria2), как `exclude-type` в Mihomo.
+    /// Типы через «|» (vless|vmess|trojan|ss|hysteria2).
     pub exclude_type: String,
     /// Переопределение uTLS fingerprint для TLS/Reality.
     pub fingerprint: String,
@@ -69,6 +70,8 @@ pub struct Subscription {
     pub primary: String,
 
     // Состояние, клиентом не задаётся.
+    /// Название подписки от провайдера (`profile-title` и т.п.), обновляется при каждой загрузке.
+    pub title: String,
     /// Подписка «Для прокси»: проксируемые правила routing направляются на её тег.
     /// Ровно одна у всех подписок; меняется только через `/api/subscriptions/proxy`.
     pub proxy: bool,
@@ -97,6 +100,7 @@ impl Default for Subscription {
             fingerprint: String::new(),
             disabled_servers: vec![],
             primary: String::new(),
+            title: String::new(),
             proxy: false,
             last_update: 0,
             last_attempt: 0,
@@ -157,6 +161,7 @@ impl Subscription {
 
     /// Переносит состояние из сохранённой версии при редактировании.
     fn keep_status(&mut self, from: &Subscription) {
+        self.title = from.title.clone();
         self.last_update = from.last_update;
         self.last_attempt = from.last_attempt;
         self.last_error = from.last_error.clone();
@@ -235,6 +240,7 @@ struct Fetched {
     outbounds: Vec<Value>,
     errors: Vec<String>,
     userinfo: Option<UserInfo>,
+    title: Option<String>,
 }
 
 fn is_disabled(sub: &Subscription, outbound: &Value) -> bool {
@@ -310,6 +316,7 @@ async fn fetch_subscription(state: &AppState, sub: &Subscription) -> Result<Fetc
         .get("subscription-userinfo")
         .and_then(|v| v.to_str().ok())
         .map(parse_userinfo);
+    let title_headers = title::TitleHeaders::from_headers(resp.headers());
     let body = resp
         .text()
         .await
@@ -340,6 +347,7 @@ async fn fetch_subscription(state: &AppState, sub: &Subscription) -> Result<Fetc
         outbounds,
         errors: parsed.errors,
         userinfo,
+        title: title::from_response(&title_headers, &body),
     })
 }
 
@@ -446,7 +454,7 @@ fn build_outbounds(sub: &Subscription, proxies: Vec<parser::ParsedProxy>) -> Res
     Ok(result)
 }
 
-/// Имя протокола в Xray и его название в Mihomo (для `exclude_type`).
+/// Имя протокола в Xray и его короткий псевдоним из ссылок (для `exclude_type`).
 fn protocol_names(outbound: &Value) -> [&str; 2] {
     let protocol = outbound.get("protocol").and_then(Value::as_str).unwrap_or("");
     let alias = match protocol {
@@ -547,6 +555,9 @@ async fn refresh(state: &AppState, sub: &mut Subscription) -> Result<bool, Strin
             sub.total_servers = fetched.outbounds.len();
             sub.cached_outbounds = fetched.outbounds.clone();
             sub.userinfo = fetched.userinfo;
+            if let Some(t) = fetched.title.clone() {
+                sub.title = t;
+            }
             let skipped = if fetched.errors.is_empty() {
                 String::new()
             } else {
@@ -576,9 +587,9 @@ async fn refresh(state: &AppState, sub: &mut Subscription) -> Result<bool, Strin
     }
 }
 
-/// Перезапускает Xray, если он сейчас активное и запущенное ядро.
-async fn restart_xray_if_running(state: &AppState) -> Option<String> {
-    if state.core.read().unwrap().name != "xray" || crate::controller::get_pid("xray").is_empty() {
+/// Перезапускает Xray, если он запущен.
+async fn restart_xray_if_running() -> Option<String> {
+    if crate::controller::get_pid("xray").is_empty() {
         return None;
     }
     log("INFO", "Перезапуск Xray после обновления подписок".into());
@@ -587,7 +598,7 @@ async fn restart_xray_if_running(state: &AppState) -> Option<String> {
 
 /// Завершение любого изменения: при необходимости назначает подписку «Для прокси»,
 /// направляет на неё проксируемые правила routing и перезапускает Xray, если что-то изменилось.
-async fn finish_change(state: &AppState, store: &mut Store, mut changed: bool) -> Option<String> {
+async fn finish_change(store: &mut Store, mut changed: bool) -> Option<String> {
     if !store.subscriptions.iter().any(|s| s.proxy) {
         if let Some(first) = store.subscriptions.first_mut() {
             first.proxy = true;
@@ -607,7 +618,7 @@ async fn finish_change(state: &AppState, store: &mut Store, mut changed: bool) -
         }
     }
     if changed {
-        restart_xray_if_running(state).await
+        restart_xray_if_running().await
     } else {
         None
     }
@@ -619,9 +630,6 @@ pub fn start_scheduler(state: AppState) {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(SCHEDULER_TICK).await;
-            if state.core.read().unwrap().name != "xray" {
-                continue;
-            }
             let _guard = STORE_LOCK.lock().await;
             let mut store = load_store().await;
             let now = now();
@@ -637,7 +645,7 @@ pub fn start_scheduler(state: AppState) {
             if let Err(e) = save_store(&store).await {
                 log("ERROR", format!("Ошибка записи {}: {}", SUBSCRIPTIONS_FILE, e));
             }
-            if let Some(e) = finish_change(&state, &mut store, changed).await {
+            if let Some(e) = finish_change(&mut store, changed).await {
                 log("ERROR", e);
             }
         }
@@ -684,12 +692,67 @@ fn list_to_api(subs: &[Subscription]) -> Vec<Value> {
     subs.iter().map(to_api).collect()
 }
 
+/// Шаблон routing по умолчанию с правилами на подписку «Для прокси».
+pub async fn get_default_routing() -> impl IntoResponse {
+    let store = load_store().await;
+    let target = store
+        .subscriptions
+        .iter()
+        .find(|s| s.proxy)
+        .or(store.subscriptions.first())
+        .map(|s| s.tag.as_str())
+        .unwrap_or("subscription_1");
+    (
+        [(axum::http::header::CONTENT_TYPE, "application/json; charset=utf-8")],
+        routing::default_routing(target),
+    )
+}
+
 pub async fn get_subscriptions() -> impl IntoResponse {
     Json(json!({ "success": true, "subscriptions": list_to_api(&load_store().await.subscriptions) }))
 }
 
+/// Теги, которые нельзя занять новой подпиской: другие подписки, outbound'ы конфигов и файлы подписок.
+async fn taken_tags(store: &Store) -> HashSet<String> {
+    let mut taken: HashSet<String> = store.subscriptions.iter().map(|s| s.tag.clone()).collect();
+    let conf_files = routing::read_conf_files().await;
+    taken.extend(routing::outbound_tags(&conf_files).into_iter().map(|(tag, _)| tag.to_string()));
+    if let Ok(mut dir) = tokio::fs::read_dir(XRAY_CONF_DIR).await {
+        while let Ok(Some(entry)) = dir.next_entry().await {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if let Some(tag) = name
+                .strip_suffix(".json")
+                .and_then(|n| n.strip_prefix("04_outbounds_sub.").or_else(|| n.strip_prefix("04_outbounds.")))
+            {
+                taken.insert(tag.to_string());
+            }
+        }
+    }
+    taken
+}
+
+/// Меняет префикс `<old>--` в тегах серверов на `<new>--`.
+fn retag(outbounds: &mut [Value], old: &str, new: &str) {
+    let prefix = format!("{old}--");
+    for o in outbounds {
+        if let Some(rest) = o["tag"].as_str().and_then(|t| t.strip_prefix(&prefix)) {
+            o["tag"] = json!(format!("{new}--{rest}"));
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct PreviewReq {
+    #[serde(flatten)]
+    sub: Subscription,
+    /// Подставить тег из названия подписки (новая подписка, тег не правили вручную).
+    #[serde(default)]
+    auto_tag: bool,
+}
+
 /// Скачивает подписку и показывает, какие серверы получатся, ничего не сохраняя.
-pub async fn post_preview(State(state): State<AppState>, Json(mut sub): Json<Subscription>) -> impl IntoResponse {
+pub async fn post_preview(State(state): State<AppState>, Json(req): Json<PreviewReq>) -> impl IntoResponse {
+    let PreviewReq { mut sub, auto_tag } = req;
     sub.normalize();
     if sub.tag.is_empty() {
         sub.tag = "preview".into();
@@ -698,11 +761,26 @@ pub async fn post_preview(State(state): State<AppState>, Json(mut sub): Json<Sub
         return fail(e);
     }
     match fetch_subscription(&state, &sub).await {
-        Ok(fetched) => {
+        Ok(mut fetched) => {
+            let taken = taken_tags(&load_store().await).await;
+            let suggested_tag = title::suggest_tag(fetched.title.as_deref(), &sub.url, &taken);
+            if auto_tag && suggested_tag != sub.tag {
+                retag(&mut fetched.outbounds, &sub.tag, &suggested_tag);
+                let (old, new) = (format!("{}--", sub.tag), format!("{suggested_tag}--"));
+                let move_tag = |t: &str| t.strip_prefix(&old).map_or_else(|| t.to_string(), |rest| format!("{new}{rest}"));
+                sub.disabled_servers = sub.disabled_servers.iter().map(|t| move_tag(t)).collect();
+                sub.primary = move_tag(&sub.primary);
+                sub.tag = suggested_tag.clone();
+            }
             let servers: Vec<Value> = fetched.outbounds.iter().map(|o| server_summary(&sub, o)).collect();
-            Json(
-                json!({ "success": true, "servers": servers, "skipped": fetched.errors, "userinfo": fetched.userinfo }),
-            )
+            Json(json!({
+                "success": true,
+                "servers": servers,
+                "skipped": fetched.errors,
+                "userinfo": fetched.userinfo,
+                "title": fetched.title,
+                "suggested_tag": suggested_tag,
+            }))
         }
         Err(e) => fail(e),
     }
@@ -746,11 +824,18 @@ pub async fn post_subscription(State(state): State<AppState>, Json(mut sub): Jso
     if let Err(e) = refresh(&state, &mut sub).await {
         return fail(e);
     }
+    let first = store.subscriptions.is_empty();
     store.subscriptions.push(sub.clone());
     if let Err(e) = save_store(&store).await {
         return fail(e);
     }
-    let restart_error = finish_change(&state, &mut store, true).await;
+    // Первая подписка и маршрутизации ещё нет — создаём routing по умолчанию.
+    if first {
+        if let Err(e) = routing::ensure_default(&sub.tag).await {
+            log("ERROR", format!("Не удалось создать маршрутизацию по умолчанию: {e}"));
+        }
+    }
+    let restart_error = finish_change(&mut store, true).await;
     // finish_change мог назначить подписку «Для прокси» — отдаём актуальную версию.
     let saved = store.subscriptions.iter().find(|s| s.tag == sub.tag).unwrap_or(&sub);
     Json(json!({ "success": true, "subscription": to_api(saved), "restart_error": restart_error }))
@@ -775,7 +860,7 @@ pub async fn patch_subscription(State(state): State<AppState>, Json(mut sub): Js
     }
     match result {
         Ok(changed) => {
-            let restart_error = finish_change(&state, &mut store, changed).await;
+            let restart_error = finish_change(&mut store, changed).await;
             Json(json!({ "success": true, "subscription": to_api(&sub), "restart_error": restart_error }))
         }
         Err(e) => fail(format!("Настройки сохранены, но обновить подписку не удалось: {e}")),
@@ -787,7 +872,7 @@ pub struct TagQuery {
     tag: String,
 }
 
-pub async fn delete_subscription(State(state): State<AppState>, Query(q): Query<TagQuery>) -> impl IntoResponse {
+pub async fn delete_subscription(Query(q): Query<TagQuery>) -> impl IntoResponse {
     let _guard = STORE_LOCK.lock().await;
     let mut store = load_store().await;
     let before = store.subscriptions.len();
@@ -802,7 +887,7 @@ pub async fn delete_subscription(State(state): State<AppState>, Query(q): Query<
     let legacy_removed = tokio::fs::remove_file(legacy_outbounds_path(&q.tag)).await.is_ok();
     log("INFO", format!("Подписка «{}» удалена", q.tag));
     // Если удалили подписку «Для прокси», флаг перейдёт к первой оставшейся вместе с правилами.
-    let restart_error = finish_change(&state, &mut store, removed || legacy_removed).await;
+    let restart_error = finish_change(&mut store, removed || legacy_removed).await;
     Json(json!({ "success": true, "restart_error": restart_error }))
 }
 
@@ -813,7 +898,7 @@ pub struct ServersReq {
 }
 
 /// Включает/отключает серверы по последнему полученному списку, без запроса подписки.
-pub async fn post_servers(State(state): State<AppState>, Json(req): Json<ServersReq>) -> impl IntoResponse {
+pub async fn post_servers(Json(req): Json<ServersReq>) -> impl IntoResponse {
     let _guard = STORE_LOCK.lock().await;
     let mut store = load_store().await;
     let Some(sub) = store.subscriptions.iter_mut().find(|s| s.tag == req.tag) else {
@@ -830,7 +915,7 @@ pub async fn post_servers(State(state): State<AppState>, Json(req): Json<Servers
     if let Err(e) = save_store(&store).await {
         return fail(e);
     }
-    let restart_error = finish_change(&state, &mut store, changed).await;
+    let restart_error = finish_change(&mut store, changed).await;
     Json(json!({ "success": true, "subscription": to_api(&updated), "restart_error": restart_error }))
 }
 
@@ -840,7 +925,7 @@ pub struct ProxyReq {
 }
 
 /// Назначает подписку «Для прокси» и направляет на неё проксируемые правила routing.
-pub async fn post_proxy(State(state): State<AppState>, Json(req): Json<ProxyReq>) -> impl IntoResponse {
+pub async fn post_proxy(Json(req): Json<ProxyReq>) -> impl IntoResponse {
     let _guard = STORE_LOCK.lock().await;
     let mut store = load_store().await;
     if !store.subscriptions.iter().any(|s| s.tag == req.tag) {
@@ -856,7 +941,7 @@ pub async fn post_proxy(State(state): State<AppState>, Json(req): Json<ProxyReq>
         "INFO",
         format!("Подписка «{}» назначена для проксируемого трафика", req.tag),
     );
-    let restart_error = finish_change(&state, &mut store, false).await;
+    let restart_error = finish_change(&mut store, false).await;
     Json(json!({ "success": true, "subscriptions": list_to_api(&store.subscriptions), "restart_error": restart_error }))
 }
 
@@ -893,7 +978,7 @@ pub async fn post_refresh(State(state): State<AppState>, Json(req): Json<Refresh
     if let Err(e) = save_store(&store).await {
         return fail(e);
     }
-    let restart_error = finish_change(&state, &mut store, changed).await;
+    let restart_error = finish_change(&mut store, changed).await;
     Json(json!({
         "success": errors.is_empty(),
         "error": (!errors.is_empty()).then(|| errors.join("\n")),

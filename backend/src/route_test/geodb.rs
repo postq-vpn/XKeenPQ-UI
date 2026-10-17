@@ -1,6 +1,5 @@
 //! Точечные проверки geosite/geoip/geoASN для тестера маршрутов: `.dat` (v2fly/xray protobuf)
-//! через целевой поиск тега без полного декодирования файла, `.mmdb`/`.metadb` через крейт
-//! `maxminddb` (feature `mmap`). Оба формата отображаются в память через `memmap2` — как и `geo.rs`
+//! через целевой поиск тега без полного декодирования файла. Файлы отображаются в память через `memmap2` — как и `geo.rs`
 //! (тот же паттерн: `File::open` + `unsafe { MmapOptions::new().map(&file) }`), а не читаются
 //! целиком в `Vec<u8>` — файлы geo-баз на роутере могут быть по ~10 МБ, и держать их кэшированными
 //! (см. ниже) полными копиями в куче накладнее, чем страницами по требованию через mmap.
@@ -21,12 +20,12 @@
 //! не "ИЛИ"). `ip_in_dat` атрибутов не знает — geoip-правила xray их не поддерживают. Тег и код
 //! страны сравниваются без учёта регистра, атрибуты — тоже (в реальных файлах уже lower-case).
 //!
-//! Кэш: mmap/mmdb-Reader кэшируются по `(path, mtime)` в общем `idle_cache::IdleCache` —
+//! Кэш: mmap кэшируются по `(path, mtime)` в общем `idle_cache::IdleCache` —
 //! вытесняются фоновым tokio-таском, если к записи не обращались 5 минут (на роутере файлы по
 //! ~10 МБ, держать их в памяти вечно накладно). Файл читается ДО вставки в кэш, а не под его
 //! блокировкой: `IdleCache` держит мьютекс только на само добавление/чтение из `HashMap`, а не на
 //! время IO — иначе синхронное чтение файла держало бы стандартный `Mutex` захваченным на потоке
-//! tokio-рантайма (в проде `xray.rs`/`mihomo.rs` зовут эти функции из async-хендлера, оборачивая
+//! tokio-рантайма (в проде `xray.rs` зовёт эти функции из async-хендлера, оборачивая
 //! блокирующий вызов в `tokio::task::block_in_place`, а не эта функция).
 //!
 //! Вместе с mmap в `DatFile` кэшируется индекс тегов верхнего уровня (`build_tag_index`) — один
@@ -44,7 +43,6 @@ use crate::route_test::idle_cache::IdleCache;
 use memmap2::{Mmap, MmapOptions};
 use prost::bytes::Buf;
 use prost::encoding::{DecodeContext, WireType, decode_key, decode_varint, skip_field};
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::net::IpAddr;
@@ -71,8 +69,6 @@ struct DatFile {
 }
 
 static DAT_CACHE: LazyLock<IdleCache<DatCacheKey, DatFile>> = LazyLock::new(|| IdleCache::new(IDLE_EVICT));
-static MMDB_CACHE: LazyLock<IdleCache<DatCacheKey, maxminddb::Reader<Mmap>>> =
-    LazyLock::new(|| IdleCache::new(IDLE_EVICT));
 /// Скомпилированные `regexp:`-домены (Type=Regex) отдельной категории, по значению паттерна.
 /// Заполняется ЛЕНИВО, по одному паттерну за раз, по мере того как `site_contains` до них
 /// доходит — категории без regex-доменов в этот кэш вообще никогда не попадают (не тратим память
@@ -120,7 +116,7 @@ fn load_dat_file(path: &Path, mtime: SystemTime) -> Result<Arc<DatFile>, String>
     let file = File::open(path).map_err(|e| format!("не удалось открыть {}: {e}", path.display()))?;
     // SAFETY: как в `geo.rs` — источник UB у `Mmap::map` в том, что файл может быть усечён или
     // перезаписан другим процессом, пока отображение живо (тогда обращение к «повисшим» страницам
-    // — не ошибка чтения, а неопределённое поведение). Здесь это geo-базы из `/opt/etc/mihomo` или
+    // — не ошибка чтения, а неопределённое поведение). Здесь это geo-базы из
     // `XRAY_ASSET_DIR`, которые обновляются целиком через переименование нового файла поверх старого
     // (`mv`/`rename`), а не переписыванием на месте, так что уже открытое отображение продолжает
     // видеть старое (валидное) содержимое инода, а не половину новых байт.
@@ -156,21 +152,6 @@ fn compiled_regex(path: &Path, mtime: SystemTime, code: &str, pattern: &str) -> 
     map.entry(pattern.to_string())
         .or_insert_with(|| regex_lite::Regex::new(pattern).ok())
         .clone()
-}
-
-fn load_mmdb_reader(path: &Path) -> Result<Arc<maxminddb::Reader<Mmap>>, String> {
-    let mtime = file_mtime(path)?;
-    let key = (path.to_path_buf(), mtime);
-    if let Some(reader) = MMDB_CACHE.get(&key) {
-        return Ok(reader);
-    }
-    // SAFETY: то же самое допущение, что и у `load_dat_bytes` выше — обновление базы через
-    // переименование файла, а не запись поверх уже открытого.
-    let reader = unsafe { maxminddb::Reader::open_mmap(path) }
-        .map_err(|e| format!("не удалось открыть {}: {e}", path.display()))?;
-    let reader = Arc::new(reader);
-    MMDB_CACHE.insert(key, reader.clone());
-    Ok(reader)
 }
 
 fn read_len_delim<'a>(buf: &mut &'a [u8]) -> Option<&'a [u8]> {
@@ -350,144 +331,11 @@ pub fn ip_in_dat(path: &Path, tag: &str, ip: IpAddr) -> Result<bool, String> {
     Ok(if reverse { !any_cidr } else { any_cidr })
 }
 
-#[derive(Deserialize, Default)]
-struct MmdbCountry {
-    #[serde(default)]
-    iso_code: Option<String>,
-}
-
-#[derive(Deserialize, Default)]
-struct MmdbCountryRecord {
-    #[serde(default)]
-    country: MmdbCountry,
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum MetaCountryValue {
-    One(String),
-    Many(Vec<String>),
-}
-
-/// Коды стран для IP. Формат базы определяется по `Metadata::database_type`, как в mihomo
-/// (`component/mmdb/reader.go`, ветка Alpha): `sing-geoip` — top-level строка, код уже lower-case,
-/// не трогаем; `Meta-geoip0` — top-level строка или массив строк, тоже не трогаем регистр;
-/// стандартный MaxMind/GeoLite2 — `{country:{iso_code}}`, ISO-коды в этих базах верхнего регистра,
-/// приводим к lower-case, чтобы формат совпадал с двумя другими (mihomo делает то же самое).
-/// `Ok(None)` — IP не найден в базе вообще; `Ok(Some(vec![]))` — запись есть, но без кода страны.
-pub fn mmdb_country(path: &Path, ip: IpAddr) -> Result<Option<Vec<String>>, String> {
-    let reader = load_mmdb_reader(path)?;
-    let result = reader.lookup(ip).map_err(|e| e.to_string())?;
-    if !result.has_data() {
-        return Ok(None);
-    }
-    match reader.metadata().database_type.as_str() {
-        "sing-geoip" => {
-            let code: Option<String> = result.decode().map_err(|e| e.to_string())?;
-            Ok(Some(code.into_iter().collect()))
-        }
-        "Meta-geoip0" => {
-            let value: Option<MetaCountryValue> = result.decode().map_err(|e| e.to_string())?;
-            Ok(Some(match value {
-                Some(MetaCountryValue::One(s)) => vec![s],
-                Some(MetaCountryValue::Many(v)) => v,
-                None => Vec::new(),
-            }))
-        }
-        _ => {
-            let rec: Option<MmdbCountryRecord> = result.decode().map_err(|e| e.to_string())?;
-            Ok(Some(
-                rec.and_then(|r| r.country.iso_code)
-                    .map(|s| vec![s.to_lowercase()])
-                    .unwrap_or_default(),
-            ))
-        }
-    }
-}
-
-#[derive(Deserialize, Default)]
-struct GeoLite2Asn {
-    #[serde(default)]
-    autonomous_system_number: u32,
-    #[serde(default)]
-    autonomous_system_organization: String,
-}
-
-#[derive(Deserialize, Default)]
-struct IpInfoAsn {
-    #[serde(default)]
-    asn: String,
-    #[serde(default)]
-    name: String,
-}
-
-enum AsnFormat {
-    GeoLite2Compatible,
-    IpInfo,
-    Unknown,
-}
-
-/// `component/mmdb/reader.go::LookupASN` (mihomo, ветка Alpha) распознаёт ASN-базы ПО СПИСКУ, а не
-/// "всё, что не ipinfo — считаем GeoLite2": для незнакомого `database_type` mihomo просто
-/// варнит и отдаёт пустой результат (`return "", ""`), не пытаясь декодировать чужой формат как
-/// GeoLite2 — так и здесь: неизвестный формат даёт `AsnFormat::Unknown` → `mmdb_asn` вернёт `Ok(None)`.
-fn detect_asn_format(database_type: &str) -> AsnFormat {
-    match database_type {
-        "GeoLite2-ASN" | "DBIP-ASN-Lite (compat=GeoLite2-ASN)" => AsnFormat::GeoLite2Compatible,
-        "ipinfo generic_asn_free.mmdb" => AsnFormat::IpInfo,
-        _ => AsnFormat::Unknown,
-    }
-}
-
-/// Номер и организация ASN для IP. `GeoLite2-ASN`/совместимые (DB-IP) — поля
-/// `autonomous_system_number`/`_organization` напрямую. `ipinfo generic_asn_free.mmdb` — поле `asn`
-/// в виде строки `"ASxxxxx"` (mihomo просто режет префикс `AS` и отдаёт строкой; нам нужен номер —
-/// парсим остаток в `u32`, при сбое парсинга — 0). Незнакомый `database_type` → `Ok(None)`.
-pub fn mmdb_asn(path: &Path, ip: IpAddr) -> Result<Option<(u32, String)>, String> {
-    let reader = load_mmdb_reader(path)?;
-    let result = reader.lookup(ip).map_err(|e| e.to_string())?;
-    if !result.has_data() {
-        return Ok(None);
-    }
-    match detect_asn_format(&reader.metadata().database_type) {
-        AsnFormat::GeoLite2Compatible => {
-            let rec: Option<GeoLite2Asn> = result.decode().map_err(|e| e.to_string())?;
-            Ok(rec.map(|r| (r.autonomous_system_number, r.autonomous_system_organization)))
-        }
-        AsnFormat::IpInfo => {
-            let rec: Option<IpInfoAsn> = result.decode().map_err(|e| e.to_string())?;
-            Ok(rec.map(|r| {
-                let num = r.asn.strip_prefix("AS").and_then(|s| s.parse().ok()).unwrap_or(0);
-                (num, r.name)
-            }))
-        }
-        AsnFormat::Unknown => Ok(None),
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
-
-    #[test]
-    fn asn_format_recognizes_only_known_database_types() {
-        assert!(matches!(
-            detect_asn_format("GeoLite2-ASN"),
-            AsnFormat::GeoLite2Compatible
-        ));
-        assert!(matches!(
-            detect_asn_format("DBIP-ASN-Lite (compat=GeoLite2-ASN)"),
-            AsnFormat::GeoLite2Compatible
-        ));
-        assert!(matches!(
-            detect_asn_format("ipinfo generic_asn_free.mmdb"),
-            AsnFormat::IpInfo
-        ));
-        // Незнакомый формат — не пытаемся угадать по GeoLite2, как раньше (mihomo тоже так не делает).
-        assert!(matches!(detect_asn_format("SomeFutureAsnFormat"), AsnFormat::Unknown));
-        assert!(matches!(detect_asn_format(""), AsnFormat::Unknown));
-    }
 
     fn varint(mut v: u64, out: &mut Vec<u8>) {
         loop {
@@ -669,27 +517,5 @@ mod tests {
         let path = PathBuf::from("/nonexistent/xkeen-route-test/geosite.dat");
         assert!(site_contains(&path, "google", "youtube.com").is_err());
         assert!(ip_in_dat(&path, "cn", "1.1.1.1".parse().unwrap()).is_err());
-        assert!(mmdb_country(&path, "1.1.1.1".parse().unwrap()).is_err());
-        assert!(mmdb_asn(&path, "1.1.1.1".parse().unwrap()).is_err());
-    }
-
-    /// Ручная проверка на реальных базах: `XKEEN_TEST_MMDB_COUNTRY`/`XKEEN_TEST_MMDB_ASN` — пути к
-    /// скачанным `Country.mmdb`/`GeoLite2-ASN.mmdb` (или `geoip.metadb`). Не гоняется в CI.
-    #[test]
-    #[ignore]
-    fn mmdb_country_real_file() {
-        let path = std::env::var("XKEEN_TEST_MMDB_COUNTRY").expect("XKEEN_TEST_MMDB_COUNTRY не задан");
-        let result = mmdb_country(Path::new(&path), "1.1.1.1".parse().unwrap()).unwrap();
-        println!("1.1.1.1 -> {result:?}");
-        assert!(result.is_some());
-    }
-
-    #[test]
-    #[ignore]
-    fn mmdb_asn_real_file() {
-        let path = std::env::var("XKEEN_TEST_MMDB_ASN").expect("XKEEN_TEST_MMDB_ASN не задан");
-        let result = mmdb_asn(Path::new(&path), "1.1.1.1".parse().unwrap()).unwrap();
-        println!("1.1.1.1 -> {result:?}");
-        assert!(result.is_some());
     }
 }

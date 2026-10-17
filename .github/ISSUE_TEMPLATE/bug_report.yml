@@ -6,7 +6,7 @@ body:
     attributes:
       label: Прежде чем продолжить
       options:
-        - label: Проблема не связана с работой ядра Xray/Mihomo
+        - label: Проблема не связана с работой ядра Xray
           required: true
         - label: Проблема не связана с работой XKeen
           required: true

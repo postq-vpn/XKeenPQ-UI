@@ -53,7 +53,6 @@ interface Props {
 }
 
 function normalizeLanguage(language: string): EditorLanguage {
-  if (language === 'yaml') return 'yaml'
   if (language === 'json') return 'json'
   return 'text'
 }
@@ -156,7 +155,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorRef, Props>(({ onContentCha
       ]),
       Prec.highest(syntaxHighlighting(editorHighlight)),
       languageCompartmentRef.current.of(getLanguageExtension(languageRef.current)),
-      indentationMarkers({ thickness: 2, colors: { activeDark: '#57a8d4', activeLight: '#3b82f6' } }),
+      indentationMarkers({ thickness: 2, colors: { activeDark: '#e592d3', activeLight: '#ff2181' } }),
       themeCompartmentRef.current.of(editorTheme(isMobileRef.current, darkTheme)),
       EditorView.contentAttributes.of({
         spellcheck: 'false',
@@ -227,19 +226,6 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorRef, Props>(({ onContentCha
           .replace(/\n{3,}/g, '\n\n')
           .replace(/\s+$/gm, '')
           .replace(/\n$/, '')
-        newCursor = result.cursorOffset
-      } else if (language === 'yaml') {
-        const [prettier, prettierYaml] = await Promise.all([import('prettier'), import('prettier/plugins/yaml')])
-        const result = await prettier.formatWithCursor(content, {
-          cursorOffset,
-          parser: 'yaml',
-          plugins: [prettierYaml],
-          printWidth: 200,
-          tabWidth: 2,
-          singleQuote: true,
-          endOfLine: 'lf',
-        })
-        text = result.formatted
         newCursor = result.cursorOffset
       } else {
         return

@@ -1,0 +1,118 @@
+{
+  "routing": {
+    "rules": [
+      {
+        "port": "443",
+        "network": "udp",
+        "outboundTag": "block"
+      },
+      {
+        "domain": [
+          "dewucdn.com",
+          "wechat.com",
+          "dewu.com",
+          "1688.com",
+          "2ip.io",
+          "postq.space",
+          "ext:geosite_v2fly.dat:okko",
+          "*.okko.tv",
+          "sberbank.ru",
+          "xn--b1auou.xn--p1ai",
+          "ext:geosite_v2fly.dat:category-ru",
+          "postq.space",
+          "ext:geosite_v2fly.dat:steam",
+          "domain:steampowered.com",
+          "domain:steamcommunity.com",
+          "domain:steamstatic.com",
+          "domain:steamcontent.com",
+          "domain:steamserver.net",
+          "domain:steamusercontent.com",
+          "domain:steam-chat.com",
+          "domain:steamgames.com",
+          "domain:valvesoftware.com",
+          "domain:steamcdn-a.akamaihd.net",
+          "domain:steampipe.akamaized.net",
+          "ext:geosite_v2fly.dat:geolocation-cn",
+          "domain:rockstargames.com",
+          "domain:rsg.sc",
+          "domain:rockstarnorth.com",
+          "domain:rockstargames.helpshift.com"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "ip": [
+          "45.121.184.0/22",
+          "103.10.124.0/23",
+          "103.28.54.0/23",
+          "146.66.152.0/21",
+          "153.254.86.0/24",
+          "155.133.224.0/19",
+          "162.254.192.0/21",
+          "185.25.180.0/22",
+          "190.217.33.0/24",
+          "192.69.96.0/22",
+          "205.196.6.0/24",
+          "208.64.200.0/22",
+          "208.78.164.0/22"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "domain": [
+          "ext:zkeen.dat:domains",
+          "ext:zkeen.dat:other",
+          "ext:zkeen.dat:youtube",
+          "docs.rw",
+          "claudeusercontent.com",
+          "glesys.com",
+          "techpowerup.com",
+          "tiktok.com",
+          "tiktokcdn.com",
+          "tiktokv.com",
+          "tiktokcdn-us.com",
+          "muscdn.com",
+          "musical.ly",
+          "ibytedtos.com",
+          "ibyteimg.com",
+          "tiktokrow-api.tiktokv.com",
+          "api16-normal-c-useast1a.tiktokv.com",
+          "log.byteoversea.com",
+          "ap-hit.byteoversea.com",
+          "melbicom.net",
+          "instantmessaging-pa.googleapis.com",
+          "remotedesktop-pa.googleapis.com",
+          "remotedesktop.google.com",
+          "claude.com"
+        ],
+        "outboundTag": "subscription_1"
+      },
+      {
+        "ip": [
+          "ext:zkeenip.dat:akamai",
+          "ext:zkeenip.dat:amazon",
+          "ext:zkeenip.dat:cdn77",
+          "ext:zkeenip.dat:cloudflare",
+          "ext:zkeenip.dat:contabo",
+          "ext:zkeenip.dat:digitalocean",
+          "ext:zkeenip.dat:discord",
+          "ext:zkeenip.dat:fastly",
+          "ext:zkeenip.dat:gcore",
+          "ext:zkeenip.dat:hetzner",
+          "ext:zkeenip.dat:meta",
+          "ext:zkeenip.dat:oracle",
+          "ext:zkeenip.dat:ovh",
+          "ext:zkeenip.dat:scaleway",
+          "ext:zkeenip.dat:telegram",
+          "ext:zkeenip.dat:vodafone",
+          "ext:zkeenip.dat:vultr"
+        ],
+        "outboundTag": "subscription_1"
+      },
+      {
+        "network": "tcp,udp",
+        "outboundTag": "direct"
+      }
+    ]
+  }
+}

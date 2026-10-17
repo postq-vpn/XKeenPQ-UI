@@ -11,7 +11,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -19,19 +18,13 @@ import {
   IconBox,
   IconBoltFilled,
   IconCheck,
-  IconChevronDown,
-  IconChevronUp,
   IconCode,
   IconDeviceFloppy,
   IconDotsFilled,
   IconExternalLinkFilled,
-  IconEye,
-  IconEyeOff,
   IconFilePlus,
   IconFileText,
-  IconFileUpload,
   IconLink,
-  IconListDetails,
   IconPencil,
   IconRefresh,
   IconRoute,
@@ -39,10 +32,9 @@ import {
   IconTrash,
   IconX,
 } from '@tabler/icons-react'
-import * as jsyaml from 'js-yaml'
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
-import { apiCall, capitalize, clashFetch, getFileLanguage } from '../../lib/api'
-import { LazyBoundary, lazyLoad, useLazyMount } from '../../lib/loader'
+import { apiCall, getFileLanguage } from '../../lib/api'
+import { lazyLoad, useLazyMount } from '../../lib/loader'
 import {
   runMassTask,
   summarizeFanOut,
@@ -52,13 +44,13 @@ import {
 } from '../../lib/multi-routers/actions'
 import { LOCAL_ROUTER_ID } from '../../lib/multi-routers/model'
 import { useRoutersStore } from '../../lib/multi-routers/store'
-import { syncClashApiPort, useAppContext, useConnectionsSync, useModalContext, useSettings } from '../../lib/store'
+import { useAppContext, useModalContext, useSettings } from '../../lib/store'
 import type { Config } from '../../lib/types'
 import { cn } from '../../lib/utils'
 import { parse as parseJsonc } from 'jsonc-parser'
 import { MassConfirmDialog } from '../log/multi-routers/MassConfirmDialog'
 import { BackupsModal } from '../modals/Backups'
-import { ProvidersModal } from '../modals/Providers'
+import { SubscriptionsButton } from '../modals/SubscriptionsButton'
 import { XraySubscriptionsModal } from '../modals/XraySubscriptions'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '../ui/context-menu'
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '../ui/input-group'
@@ -67,9 +59,6 @@ import type { CodeMirrorRef } from './CodeMirror'
 
 const GuiRouting = lazyLoad(() => import('./xray/GuiRouting'), 'GuiRouting')
 const GuiLog = lazyLoad(() => import('./xray/GuiLog'), 'GuiLog')
-const ConnectionsPanel = lazyLoad(() => import('./mihomo/Connections'), 'ConnectionsPanel')
-const SelectorsPanel = lazyLoad(() => import('./mihomo/Selectors'), 'SelectorsPanel')
-import { DnsPanel } from './mihomo/DnsPanel'
 const CodeMirrorEditorLazy = lazyLoad(() => import('./CodeMirror'), 'CodeMirrorEditor')
 
 const BackupsModalContainer = memo(function BackupsModalContainer({ onRefreshConfigs }: { onRefreshConfigs: () => Promise<unknown> }) {
@@ -83,18 +72,19 @@ const BackupsModalContainer = memo(function BackupsModalContainer({ onRefreshCon
   return <BackupsModal open={modals.showBackupsModal} onOpenChange={handleOpenChange} onRefreshConfigs={onRefreshConfigs} />
 })
 
-type ClashMode = 'rule' | 'global' | 'direct'
 type ApiResult = { success: boolean; error?: string }
 
 const isXkeenFile = (file: string) => file.startsWith('/opt/etc/xkeen')
-type ProvidersModalKind = 'rules' | 'proxies'
 
-const TOGGLE_ALL_SELECTORS_EVENT = 'mihomo:toggle-all-selectors'
-const SHOW_HIDDEN_SELECTORS_KEY = 'showHiddenSelectors'
+/** Подпись вкладки: имя файла без расширения и номера-префикса, файлы подписок — «sub: <тег>». */
+const tabLabel = (file: string) =>
+  (file.split('/').pop() ?? file)
+    .replace(/\.[^.]+$/, '')
+    .replace(/^\d+_outbounds_sub\./, 'sub: ')
+    .replace(/^\d+_/, '')
 
 interface Props {
   onOpenImport: () => void
-  onOpenImportAmnezia: () => void
   onOpenTemplate: () => void
   onOpenGeoScan: () => void
   onOpenRouteTest: () => void
@@ -106,7 +96,6 @@ interface Props {
 
 interface ConfigTabProps {
   config: Config
-  currentCore: string
   showToast: (msg: string, type?: 'success' | 'error') => void
   onRefreshConfigs: () => Promise<Config[]>
   withContextMenu?: boolean
@@ -118,7 +107,7 @@ type DialogState =
   | { type: 'delete'; file: string }
   | null
 
-function ConfigTab({ config, currentCore, showToast, onRefreshConfigs, withContextMenu = false }: ConfigTabProps) {
+function ConfigTab({ config, showToast, onRefreshConfigs, withContextMenu = false }: ConfigTabProps) {
   const [dialogData, setDialogData] = useState<DialogState>(null)
   const [popoverOpen, setPopoverOpen] = useState(false)
 
@@ -127,7 +116,6 @@ function ConfigTab({ config, currentCore, showToast, onRefreshConfigs, withConte
   const [inputValue, setInputValue] = useState('')
 
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
-  const isCoreMihomo = currentCore === 'mihomo'
 
   const openDialog = (value: NonNullable<DialogState>) => {
     pendingInputFocusRef.current = value.type !== 'delete'
@@ -140,8 +128,8 @@ function ConfigTab({ config, currentCore, showToast, onRefreshConfigs, withConte
   const fileExt = useMemo(() => {
     if (!dialogData || dialogData.type === 'delete') return ''
     if (dialogData.type === 'rename') return dialogData.file.match(/(\.[^.]+)$/)?.[1] ?? ''
-    return dialogData.isLst ? '.lst' : isCoreMihomo ? '.yaml' : '.json'
-  }, [dialogData, isCoreMihomo])
+    return dialogData.isLst ? '.lst' : '.json'
+  }, [dialogData])
 
   async function commitDialog() {
     if (!dialogData) return
@@ -172,14 +160,9 @@ function ConfigTab({ config, currentCore, showToast, onRefreshConfigs, withConte
     }
   }
 
-  const isProtected = config.file.endsWith('/config.yaml') || config.file === 'config.yaml'
-
   const tabsTrigger = (
     <TabsTrigger value={config.file} className="dark:data-[state=active]:bg-input-background! relative data-[state=active]:bg-white!">
-      {config.file
-        .split('/')
-        .pop()
-        ?.replace(/\.[^.]+$/, '')}
+      {tabLabel(config.file)}
       {config.isDirty && <span className="absolute top-0.75 right-0.75 h-1.5 w-1.5 rounded-full bg-amber-400" />}
     </TabsTrigger>
   )
@@ -225,7 +208,6 @@ function ConfigTab({ config, currentCore, showToast, onRefreshConfigs, withConte
             <IconFilePlus /> Создать файл
           </ContextMenuItem>
           <ContextMenuItem
-            disabled={isProtected}
             onSelect={() => {
               const name =
                 config.file
@@ -239,7 +221,7 @@ function ConfigTab({ config, currentCore, showToast, onRefreshConfigs, withConte
             <IconPencil /> Переименовать
           </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem disabled={isProtected} variant="destructive" onSelect={() => openDialog({ type: 'delete', file: config.file })}>
+          <ContextMenuItem variant="destructive" onSelect={() => openDialog({ type: 'delete', file: config.file })}>
             <IconTrash /> Удалить
           </ContextMenuItem>
         </ContextMenuContent>
@@ -291,7 +273,6 @@ function ConfigTab({ config, currentCore, showToast, onRefreshConfigs, withConte
 
 export function ConfigPanel({
   onOpenImport,
-  onOpenImportAmnezia,
   onOpenTemplate,
   onOpenGeoScan,
   onOpenRouteTest,
@@ -301,11 +282,10 @@ export function ConfigPanel({
   configActionsRef,
 }: Props) {
   const { state, dispatch, showToast } = useAppContext({ includeConfigs: true })
-  const { configs, isConfigsLoading, currentCore, serviceStatus, clashApiPort, clashApiSecret, clashApiUnix } = state
+  const { configs, isConfigsLoading, serviceStatus } = state
   const guiRouting = useSettings((s) => s.guiRouting)
   const guiLog = useSettings((s) => s.guiLog)
   const multiRouter = useSettings((s) => s.multiRouter)
-  const closeConnsOnApply = useSettings((s) => s.closeConnectionsOnApply)
   const applyTargets = useRoutersStore((s) => s.applyTargets)
   const getMassTargets = () => {
     if (!multiRouter) return [LOCAL_ROUTER_ID]
@@ -314,12 +294,6 @@ export function ConfigPanel({
 
   const isRunning = serviceStatus === 'running'
   const isPending = serviceStatus === 'pending'
-  const activeClashApiPort = isRunning ? clashApiPort : null
-  const activeClashApiUnix = isRunning ? clashApiUnix : null
-
-  const isCoreMihomo = currentCore === 'mihomo'
-
-  useConnectionsSync(isCoreMihomo ? activeClashApiPort : null, clashApiSecret, serviceStatus, activeClashApiUnix)
 
   const [activeConfigFile, setActiveConfigFile] = useState<string>(() => localStorage.getItem('lastSelectedTab') ?? '')
   const activeConfigIndex = useMemo(() => {
@@ -331,23 +305,8 @@ export function ConfigPanel({
 
   const [isEditorMounted, setIsEditorMounted] = useState(false)
 
-  const [activePanel, setActivePanel] = useState<'selectors' | 'connections' | 'config' | 'dns'>('selectors')
-  const [mountedPanels, setMountedPanels] = useState<Set<string>>(() => new Set(['selectors']))
-  const [mode, setMode] = useState<ClashMode>('rule')
-  const [allSelectorsCollapsed, setAllSelectorsCollapsed] = useState(false)
-  const [showHiddenSelectors, setShowHiddenSelectors] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(SHOW_HIDDEN_SELECTORS_KEY) === '1'
-    } catch {
-      return false
-    }
-  })
-  const [providersModalKind, setProvidersModalKind] = useState<ProvidersModalKind | null>(null)
-  const [isProvidersModalOpen, setIsProvidersModalOpen] = useState(false)
-  const mountProvidersModal = useLazyMount(isProvidersModalOpen)
   const [isXraySubsOpen, setIsXraySubsOpen] = useState(false)
   const mountXraySubs = useLazyMount(isXraySubsOpen)
-  const currentPanel = isRunning ? activePanel : 'config'
   const [massConfirm, setMassConfirm] = useState<{
     title: string
     description: string
@@ -395,44 +354,12 @@ export function ConfigPanel({
 
   const configFilenamesKey = configs.map((c) => c.file).join(',')
 
-  useEffect(() => {
-    if (!isCoreMihomo || (!activeClashApiPort && !activeClashApiUnix)) return
-    let cancelled = false
-    const timer = setTimeout(() => {
-      if (cancelled) return
-      clashFetch<{ mode?: ClashMode }>(activeClashApiPort ?? '', 'configs', { secret: clashApiSecret, unix: activeClashApiUnix })
-        .then((data) => {
-          if (data.mode) setMode(data.mode)
-        })
-        .catch(() => {})
-    }, 200)
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-  }, [isCoreMihomo, activeClashApiPort, clashApiSecret, activeClashApiUnix])
-
-  const changeMode = useCallback(
-    async (newMode: ClashMode) => {
-      if (newMode === mode || (!activeClashApiPort && !activeClashApiUnix)) return
-      setMode(newMode)
-      await clashFetch(activeClashApiPort ?? '', 'configs', {
-        method: 'PATCH',
-        secret: clashApiSecret,
-        unix: activeClashApiUnix,
-        body: { mode: newMode },
-      })
-      await clashFetch(activeClashApiPort ?? '', 'connections', { method: 'DELETE', secret: clashApiSecret, unix: activeClashApiUnix })
-    },
-    [activeClashApiPort, clashApiSecret, activeClashApiUnix, mode]
-  )
-
   const activeConfig = configs[activeConfigIndex]
   const fileLanguage = activeConfig ? getFileLanguage(activeConfig.file) : null
-  const isJsonOrYaml = fileLanguage === 'json' || fileLanguage === 'yaml'
+  const isJson = fileLanguage === 'json'
   const canSave = !!(activeConfig?.isDirty && validationState?.isValid)
   const canApply = canSave && isRunning && !isPending
-  const canFormat = !!(isJsonOrYaml && validationState?.isValid)
+  const canFormat = !!(isJson && validationState?.isValid)
 
   const loadConfigIntoEditor = useCallback(
     (config: Config) => {
@@ -494,24 +421,6 @@ export function ConfigPanel({
   const handleValidationChange = useCallback((isValid: boolean, error?: string) => {
     setValidationState((prev) => (prev?.isValid === isValid && prev?.error === error ? prev : { isValid, error }))
   }, [])
-
-  const openProvidersModal = useCallback((kind: ProvidersModalKind) => {
-    setProvidersModalKind(kind)
-    setIsProvidersModalOpen(true)
-  }, [])
-
-  const handleProvidersModalOpenChange = useCallback((open: boolean) => setIsProvidersModalOpen(open), [])
-
-  // Подписок ещё нет — сразу открываем добавление сервера/подписки вместо пустого списка.
-  const openXraySubscriptions = useCallback(async () => {
-    try {
-      const res = await apiCall<{ success: boolean; subscriptions?: unknown[] }>('GET', 'subscriptions')
-      if (res.success && res.subscriptions?.length === 0) return onOpenImport()
-    } catch {
-      /* откроем список, он сам покажет ошибку */
-    }
-    setIsXraySubsOpen(true)
-  }, [onOpenImport])
 
   const refreshConfigsAndEditor = useCallback(async () => {
     const currentCfg = configsRef.current[activeIndexRef.current]
@@ -632,29 +541,13 @@ export function ConfigPanel({
 
   function restartActionFor(cfg: Config, content: string) {
     const lang = getFileLanguage(cfg.file)
-    return !isXkeenFile(cfg.file) && (lang === 'json' || lang === 'yaml') && !hasCriticalChanges(cfg.savedContent, content, lang)
+    return !isXkeenFile(cfg.file) && lang === 'json' && !hasCriticalChanges(cfg.savedContent, content)
       ? 'softRestart'
       : 'hardRestart'
   }
 
   async function applyToHost(baseUrl: string | null, cfg: Config, content: string) {
-    let core = currentCore
-    if (baseUrl) {
-      try {
-        const ctrl = await apiCall<{ success?: boolean; currentCore?: string }>('GET', 'control', undefined, { baseUrl })
-        if (ctrl?.currentCore) core = ctrl.currentCore
-      } catch {
-        /* keep local core */
-      }
-    }
-
-    const isHotReload = core === 'mihomo' && !isXkeenFile(cfg.file)
-
-    let validate = ''
-    if (!isXkeenFile(cfg.file) && (core === 'mihomo' || core === 'xray')) {
-      validate = `?validate=${core}`
-      if (core === 'mihomo' && closeConnsOnApply) validate += '&closeConns=true'
-    }
+    const validate = isXkeenFile(cfg.file) ? '' : '?validate=xray'
     const saveResult = await apiCall<ApiResult>(
       'PUT',
       `configs${validate}`,
@@ -665,32 +558,17 @@ export function ConfigPanel({
     )
     if (!saveResult.success) {
       throw new Error(
-        saveResult.error === 'Validation failed'
-          ? `Ошибка валидации ${capitalize(core)}: проверьте журнал`
-          : saveResult.error || 'Ошибка сохранения'
+        saveResult.error === 'Validation failed' ? 'Ошибка валидации Xray: проверьте журнал' : saveResult.error || 'Ошибка сохранения'
       )
     }
 
-    const action = isHotReload
-      ? hasCriticalChanges(cfg.savedContent, content, 'yaml')
-        ? 'hardRestart'
-        : null
-      : restartActionFor(cfg, content)
-    if (!action) return false
-
-    const restartResult = await apiCall<ApiResult>('POST', 'control', { action, core }, { baseUrl })
+    const restartResult = await apiCall<ApiResult>('POST', 'control', { action: restartActionFor(cfg, content) }, { baseUrl })
     if (!restartResult?.success) throw new Error(restartResult?.error || 'ошибка перезапуска')
-    return true
   }
 
   async function executeApply(targets: string[], cfg: Config, content: string, targetIndex: number) {
     dispatch({ type: 'SET_SERVICE_STATUS', status: 'pending', pendingText: 'Применение...' })
-    const isMihomoHotReload = currentCore === 'mihomo' && !isXkeenFile(cfg.file)
-    let localRestarted = false
-    const results = await runMassTask(targets, async (id, baseUrl) => {
-      const restarted = await applyToHost(baseUrl, cfg, content)
-      if (id === LOCAL_ROUTER_ID) localRestarted = restarted
-    })
+    const results = await runMassTask(targets, (_id, baseUrl) => applyToHost(baseUrl, cfg, content))
 
     const localOk = results.find((r) => r.id === LOCAL_ROUTER_ID)?.ok
     if (targets.includes(LOCAL_ROUTER_ID) ? localOk : results.some((r) => r.ok)) {
@@ -718,13 +596,11 @@ export function ConfigPanel({
     }
 
     if (targets.includes(LOCAL_ROUTER_ID)) {
-      const nextStatus =
-        localOk === false && !(isMihomoHotReload && !localRestarted) ? 'stopped' : isRunning || localOk ? 'running' : 'stopped'
+      const nextStatus = localOk === false ? 'stopped' : isRunning || localOk ? 'running' : 'stopped'
       dispatch({
         type: 'SET_SERVICE_STATUS',
         status: nextStatus,
       })
-      if (localOk !== false) syncClashApiPort(200)
     } else {
       dispatch({ type: 'SET_SERVICE_STATUS', status: isRunning ? 'running' : 'stopped' })
     }
@@ -828,143 +704,26 @@ export function ConfigPanel({
   const coreConfigs = configs.filter((c) => !isXkeenFile(c.file))
   const xkeenConfigs = configs.filter((c) => isXkeenFile(c.file))
 
-  const isMihomo = isCoreMihomo && (!!activeClashApiPort || !!activeClashApiUnix)
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
   const usefulLinks = [
     { title: 'Инструкция XKeen', url: 'https://github.com/Corvus-Malus/XKeen/' },
     { title: 'FAQ XKeen', url: 'https://jameszero.net/faq-xkeen.htm' },
     { title: 'Документация Xray', url: 'https://xtls.github.io/ru/config' },
-    { title: 'Документация Mihomo', url: 'https://wiki.metacubex.one/ru/config/general' },
   ]
 
   return (
     <TooltipProvider delayDuration={500}>
       <>
         <div className="border-border bg-card flex flex-col overflow-hidden rounded-xl border md:min-h-0 md:flex-1">
-          <div className={cn('flex shrink-0 flex-col gap-2 px-3 pt-3 sm:px-4 sm:pt-4 md:flex-row md:items-start')}>
-            <div className="flex min-w-0 shrink-0 items-center gap-2">
-              {isMihomo ? (
-                <div className="min-w-0 scrollbar-none overflow-x-auto md:overflow-x-visible [&::-webkit-scrollbar]:hidden">
-                  <Tabs
-                    value={currentPanel}
-                    onValueChange={(value) => {
-                      const panel = value as 'config' | 'selectors' | 'connections' | 'dns'
-                      setActivePanel(panel)
-                      setMountedPanels((prev) => (prev.has(panel) ? prev : new Set([...prev, panel])))
-                    }}
-                    className="w-max flex-row!"
-                  >
-                    <TabsList variant="line" className="mb-2 w-max shrink-0 gap-3 p-0 whitespace-nowrap md:mb-0">
-                      <TabsTrigger value="selectors" className="p-0 text-sm font-semibold md:text-lg" disabled={!isRunning}>
-                        Селекторы
-                      </TabsTrigger>
-                      <TabsTrigger value="connections" className="p-0 text-sm font-semibold md:text-lg" disabled={!isRunning}>
-                        Соединения
-                      </TabsTrigger>
-                      <TabsTrigger value="dns" className="p-0 text-sm font-semibold md:text-lg">
-                        DNS
-                      </TabsTrigger>
-                      <TabsTrigger value="config" className="p-0 text-sm font-semibold md:text-lg">
-                        Конфигурация
-                      </TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3">
-                  <h2 className="shrink-0 text-lg font-semibold select-none">Конфигурация</h2>
-                  {!isCoreMihomo && (
-                    <Button variant="outline" size="sm" className="text-[13px]" onClick={() => void openXraySubscriptions()}>
-                      <IconListDetails data-icon="inline-start" />
-                      Подписки
-                    </Button>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {isMihomo && currentPanel === 'connections' && (
-              <div className="ml-auto flex items-center gap-2">
-                <span className="text-muted-foreground text-xs">Режим маршрутизации</span>
-                <Select
-                  value={mode}
-                  items={{ direct: 'DIRECT', rule: 'RULE', global: 'GLOBAL' }}
-                  onValueChange={(value) => changeMode(value as ClashMode)}
-                >
-                  <SelectTrigger className="w-30">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="direct">DIRECT</SelectItem>
-                      <SelectItem value="rule">RULE</SelectItem>
-                      <SelectItem value="global">GLOBAL</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {isMihomo && currentPanel === 'selectors' && (
-              <div className="ml-auto flex items-center gap-1.5">
-                <Button variant="outline" className="text-[13px]" onClick={() => openProvidersModal('proxies')}>
-                  <IconListDetails data-icon="inline-start" />
-                  Подписки
-                </Button>
-                <Button variant="outline" className="text-[13px]" onClick={() => openProvidersModal('rules')}>
-                  <IconListDetails data-icon="inline-start" />
-                  Рулсеты
-                </Button>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        aria-label={showHiddenSelectors ? 'Скрыть скрытые селекторы' : 'Показывать скрытые селекторы'}
-                        aria-pressed={showHiddenSelectors}
-                        className={cn(showHiddenSelectors && 'border-[#60a5fa] text-blue-400')}
-                        onClick={() => {
-                          setShowHiddenSelectors((prev) => {
-                            try {
-                              localStorage.setItem(SHOW_HIDDEN_SELECTORS_KEY, prev ? '0' : '1')
-                            } catch {
-                              /* */
-                            }
-                            return !prev
-                          })
-                        }}
-                      >
-                        {showHiddenSelectors ? <IconEyeOff /> : <IconEye />}
-                      </Button>
-                    }
-                  />
-                  <TooltipContent>{showHiddenSelectors ? 'Скрыть скрытые' : 'Показывать скрытые'}</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        aria-label={allSelectorsCollapsed ? 'Развернуть все селекторы' : 'Свернуть все селекторы'}
-                        onClick={() =>
-                          window.dispatchEvent(
-                            new CustomEvent(TOGGLE_ALL_SELECTORS_EVENT, { detail: { collapsed: !allSelectorsCollapsed } })
-                          )
-                        }
-                      >
-                        {allSelectorsCollapsed ? <IconChevronDown /> : <IconChevronUp />}
-                      </Button>
-                    }
-                  />
-                  <TooltipContent>{allSelectorsCollapsed ? 'Развернуть все' : 'Свернуть все'}</TooltipContent>
-                </Tooltip>
-              </div>
-            )}
-
-            {(!isMihomo || currentPanel === 'config') && (
-              <div className="scrollbar-none overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] md:ml-auto [&::-webkit-scrollbar]:hidden">
+          <div className="flex shrink-0 flex-col gap-2 px-3 pt-3 sm:px-4 sm:pt-4">
+            <h2 className="text-lg font-semibold select-none">Конфигурация</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <SubscriptionsButton
+                refreshKey={`${isXraySubsOpen}|${configFilenamesKey}`}
+                onOpen={() => setIsXraySubsOpen(true)}
+                onAdd={onOpenImport}
+              />
+              <div className="ml-auto max-w-full min-w-0">
                 {isConfigsLoading ? (
                   <div className="flex gap-2">
                     {[525, 310].map((w) => (
@@ -978,15 +737,14 @@ export function ConfigPanel({
                       const index = configs.findIndex((c) => c.file === value)
                       if (index >= 0) switchTab(index)
                     }}
-                    className="flex-row!"
+                    className="flex-row! flex-wrap justify-end gap-2"
                   >
                     {coreConfigs.length > 0 && (
-                      <TabsList className="shrink-0">
+                      <TabsList className="h-auto max-w-full flex-wrap">
                         {coreConfigs.map((config) => (
                           <ConfigTab
                             key={config.file}
                             config={config}
-                            currentCore={currentCore}
                             showToast={showToast}
                             onRefreshConfigs={refreshConfigsAndEditor}
                             withContextMenu
@@ -995,12 +753,11 @@ export function ConfigPanel({
                       </TabsList>
                     )}
                     {xkeenConfigs.length > 0 && (
-                      <TabsList className="shrink-0">
+                      <TabsList className="h-auto max-w-full flex-wrap">
                         {xkeenConfigs.map((config) => (
                           <ConfigTab
                             key={config.file}
                             config={config}
-                            currentCore={currentCore}
                             showToast={showToast}
                             onRefreshConfigs={refreshConfigsAndEditor}
                           />
@@ -1010,7 +767,7 @@ export function ConfigPanel({
                   </Tabs>
                 )}
               </div>
-            )}
+            </div>
           </div>
 
           <div className="relative min-h-175! md:min-h-0 md:flex-1">
@@ -1021,50 +778,9 @@ export function ConfigPanel({
               <GuiLog editorRef={editorRef} configs={configs} activeConfigIndex={activeConfigIndex} />
             )}
 
-            {isMihomo && (
-              <>
-                {mountedPanels.has('selectors') && (
-                  <div className={cn(currentPanel !== 'selectors' && 'hidden')}>
-                    <LazyBoundary>
-                      <SelectorsPanel
-                        clashApiPort={(activeClashApiPort ?? '') as string}
-                        mode={mode}
-                        clashApiSecret={clashApiSecret ?? null}
-                        clashApiUnix={activeClashApiUnix ?? null}
-                        showHiddenSelectors={showHiddenSelectors}
-                        onCollapsedStateChange={setAllSelectorsCollapsed}
-                      />
-                    </LazyBoundary>
-                  </div>
-                )}
-                {mountedPanels.has('connections') && (
-                  <div className={cn(currentPanel !== 'connections' && 'hidden')}>
-                    <LazyBoundary>
-                      <ConnectionsPanel
-                        clashApiPort={(activeClashApiPort ?? '') as string}
-                        clashApiSecret={clashApiSecret ?? null}
-                        clashApiUnix={activeClashApiUnix ?? null}
-                      />
-                    </LazyBoundary>
-                  </div>
-                )}
-                {mountedPanels.has('dns') && (
-                  <div className={cn(currentPanel !== 'dns' && 'hidden')}>
-                    <LazyBoundary>
-                      <DnsPanel />
-                    </LazyBoundary>
-                  </div>
-                )}
-              </>
-            )}
-
-            {!isConfigsLoading && (!isMihomo || mountedPanels.has('config')) && (
+            {!isConfigsLoading && (
               <div
-                className={cn(
-                  'absolute inset-0',
-                  isAnyGui && 'pointer-events-none invisible opacity-0',
-                  isMihomo && currentPanel !== 'config' && 'hidden'
-                )}
+                className={cn('absolute inset-0', isAnyGui && 'pointer-events-none invisible opacity-0')}
               >
                 <CodeMirrorEditorLazy
                   ref={editorRef}
@@ -1077,12 +793,11 @@ export function ConfigPanel({
             )}
           </div>
 
-          {(!isMihomo || currentPanel === 'config') && (
             <div className="flex shrink-0 flex-wrap items-center justify-between gap-1.5 px-3 pb-3 sm:px-4 sm:pb-4">
               <div className="min-w-0 text-xs">
                 {isConfigsLoading ? (
                   <Skeleton className="h-4 w-30" />
-                ) : validationState && activeConfig && isJsonOrYaml ? (
+                ) : validationState && activeConfig && isJson ? (
                   <span
                     className={cn(
                       'flex items-center gap-1.5 text-[13px] tracking-wide',
@@ -1111,7 +826,7 @@ export function ConfigPanel({
                           <Button
                             size="default"
                             disabled={!canApply}
-                            className="bg-green-600 text-white hover:bg-green-700"
+                            className="btn-brand"
                             onClick={() => saveAndApply()}
                           >
                             <IconRefresh data-icon="inline-start" /> Применить
@@ -1147,11 +862,6 @@ export function ConfigPanel({
                           <DropdownMenuItem onClick={onOpenImport}>
                             <IconLink /> Добавить подключение
                           </DropdownMenuItem>
-                          {isCoreMihomo && (
-                            <DropdownMenuItem onClick={onOpenImportAmnezia}>
-                              <IconFileUpload /> Импорт AmneziaWG
-                            </DropdownMenuItem>
-                          )}
                           <DropdownMenuItem onClick={onOpenTemplate}>
                             <IconFileText /> Шаблоны конфигураций
                           </DropdownMenuItem>
@@ -1212,18 +922,7 @@ export function ConfigPanel({
                 )}
               </div>
             </div>
-          )}
         </div>
-        {providersModalKind && mountProvidersModal && (
-          <ProvidersModal
-            open={isProvidersModalOpen}
-            kind={providersModalKind}
-            clashApiPort={activeClashApiPort ?? ''}
-            clashApiSecret={clashApiSecret ?? null}
-            clashApiUnix={activeClashApiUnix ?? null}
-            onOpenChange={handleProvidersModalOpenChange}
-          />
-        )}
         {mountXraySubs && (
           <XraySubscriptionsModal
             open={isXraySubsOpen}
@@ -1259,24 +958,14 @@ function hasComments(content: string) {
   return /(?<!:)\/\/|\/\*[\s\S]*?\*\//.test(content) || /^\s*#/m.test(content)
 }
 
-function hasCriticalChanges(oldContent: string, newContent: string, language: string): boolean {
+function hasCriticalChanges(oldContent: string, newContent: string): boolean {
   try {
-    if (language === 'yaml') {
-      const o = jsyaml.load(oldContent) as Record<string, unknown>
-      const n = jsyaml.load(newContent) as Record<string, unknown>
-      return ['listeners', 'redir-port', 'tproxy-port', 'external-controller', 'external-controller-tls', 'external-controller-unix', 'external-controller-pipe', 'external-controller-cors', 'external-controller-routing-mark', 'external-ui', 'external-ui-url', 'external-ui-name', 'external-doh-server', 'secret', 'tls'].some(
-        (f) => JSON.stringify(o?.[f]) !== JSON.stringify(n?.[f])
-      )
-    }
-    if (language === 'json') {
-      const o = parseJsonc(oldContent)
-      const n = parseJsonc(newContent)
-      const clean = (arr: Record<string, unknown>[]) =>
-        (arr || []).map((item) => Object.fromEntries(Object.entries(item).filter(([k]) => k !== 'sniffing')))
-      return JSON.stringify(clean(o?.inbounds)) !== JSON.stringify(clean(n?.inbounds))
-    }
+    const o = parseJsonc(oldContent)
+    const n = parseJsonc(newContent)
+    const clean = (arr: Record<string, unknown>[]) =>
+      (arr || []).map((item) => Object.fromEntries(Object.entries(item).filter(([k]) => k !== 'sniffing')))
+    return JSON.stringify(clean(o?.inbounds)) !== JSON.stringify(clean(n?.inbounds))
   } catch {
     return false
   }
-  return false
 }

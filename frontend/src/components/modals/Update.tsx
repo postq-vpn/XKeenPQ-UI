@@ -20,7 +20,6 @@ const JSDELIVR_API = 'https://data.jsdelivr.com/v1/package/gh'
 const FETCH_TIMEOUT_MS = 5000
 const CORE_REPOS = {
   xray: 'XTLS/Xray-core',
-  mihomo: 'MetaCubeX/mihomo',
   self: 'kiloo11/XKeenPQ-UI',
 } as const
 
@@ -53,7 +52,6 @@ export function UpdateModal({ onInstalled }: { onInstalled: () => void }) {
   const backupCore = useSettings((s) => s.backupCore)
   const githubProxies = useSettings((s) => s.githubProxies)
   const xrayRepo = useSettings((s) => s.xrayRepo)
-  const mihomoRepo = useSettings((s) => s.mihomoRepo)
   const { updateModalCore } = modals
   const [releases, setReleases] = useState<Release[]>([])
   const [selectedVersion, setSelectedVersion] = useState('')
@@ -68,9 +66,7 @@ export function UpdateModal({ onInstalled }: { onInstalled: () => void }) {
       ? CORE_REPOS.self
       : updateModalCore === 'xray'
         ? repoSlug(xrayRepo) || CORE_REPOS.xray
-        : updateModalCore === 'mihomo'
-          ? repoSlug(mihomoRepo) || CORE_REPOS.mihomo
-          : ''
+        : ''
   const close = () => dispatch({ type: 'SHOW_MODAL', modal: 'showUpdateModal', show: false })
 
   useEffect(() => {
@@ -281,8 +277,8 @@ export function UpdateModal({ onInstalled }: { onInstalled: () => void }) {
                       className={cn(
                         'rounded-lg border transition-all',
                         checked
-                          ? 'border-[#60a5fa] bg-linear-to-b from-blue-500/25 to-blue-500/15'
-                          : 'border-ring/40 bg-[linear-gradient(135deg,rgba(59,130,246,0.05)_0%,transparent_50%)] hover:border-[#60a5fa] hover:bg-linear-to-b hover:from-blue-500/15 hover:to-blue-500/5'
+                          ? 'border-blue-400 bg-linear-to-b from-blue-500/25 to-blue-500/15'
+                          : 'border-ring/40 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--color-blue-500)_5%,transparent)_0%,transparent_50%)] hover:border-blue-400 hover:bg-linear-to-b hover:from-blue-500/15 hover:to-blue-500/5'
                       )}
                     >
                       <AccordionTrigger
@@ -339,8 +335,8 @@ export function UpdateModal({ onInstalled }: { onInstalled: () => void }) {
                       className={cn(
                         'flex cursor-pointer items-start justify-between gap-3 rounded-lg border px-3 py-2.5 transition-all',
                         checked
-                          ? 'border-[#60a5fa] bg-linear-to-b from-blue-500/25 to-blue-500/15'
-                          : 'border-ring/40 bg-[linear-gradient(135deg,rgba(59,130,246,0.05)_0%,transparent_50%)] from-blue-500/15 to-blue-500/5 hover:border-[#60a5fa] hover:bg-linear-to-b'
+                          ? 'border-blue-400 bg-linear-to-b from-blue-500/25 to-blue-500/15'
+                          : 'border-ring/40 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--color-blue-500)_5%,transparent)_0%,transparent_50%)] from-blue-500/15 to-blue-500/5 hover:border-blue-400 hover:bg-linear-to-b'
                       )}
                     >
                       <span className="truncate text-sm font-medium">{release.name || release.version}</span>

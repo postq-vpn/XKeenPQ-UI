@@ -54,30 +54,3 @@ export function jsonValueInsertion(state: EditorState, ctx: ResolvedContext, val
   if (!hasClosingQuote) return single(ctx.from, ctx.to, `${value}"`)
   return single(ctx.from, ctx.to, value)
 }
-
-/**
- * Builds the edit for accepting a YAML mapping key completion. When `node` is an object or array
- * and the rest of the line is empty, opens a new indented block (`key:\n` + `keyCol + 2` spaces)
- * instead of `key: ` — never inserting a leading `- `, siblings stay aligned at the same column.
- */
-export function yamlKeyInsertion(state: EditorState, ctx: ResolvedContext, key: string, node: SchemaNode): Insertion {
-  const line = state.doc.lineAt(ctx.from)
-  const col = ctx.from - line.from
-  const restOfLine = line.text.slice(ctx.to - line.from)
-  const isEmptyRest = restOfLine.trim() === ''
-  const isContainer = node.type === 'object' || node.type === 'array'
-  if (isContainer && isEmptyRest) {
-    return single(ctx.from, ctx.to, `${key}:\n${' '.repeat(col + 2)}`)
-  }
-  return single(ctx.from, ctx.to, `${key}: `)
-}
-
-const YAML_SPECIAL_RE = /[:#{}[\],&*!|>'"%@`]/
-const YAML_EDGE_WHITESPACE_RE = /^\s|\s$/
-
-/** Builds the edit for accepting a YAML scalar value, quoting only when the value needs it. */
-export function yamlValueInsertion(ctx: ResolvedContext, value: string): Insertion {
-  const needsQuotes = value === '' || YAML_SPECIAL_RE.test(value) || YAML_EDGE_WHITESPACE_RE.test(value)
-  const text = needsQuotes ? `'${value.replace(/'/g, "''")}'` : value
-  return single(ctx.from, ctx.to, text)
-}

@@ -1,7 +1,4 @@
-export const DEFAULT_PING_TEST_URL = 'https://www.gstatic.com/generate_204'
-export const DEFAULT_PING_TEST_TIMEOUT = 5000
 export const DEFAULT_XRAY_REPO = 'https://github.com/XTLS/Xray-core'
-export const DEFAULT_MIHOMO_REPO = 'https://github.com/MetaCubeX/mihomo'
 
 export type ThemeMode = 'light' | 'dark' | 'auto'
 
@@ -11,10 +8,6 @@ export interface Config {
   savedContent: string
   isDirty: boolean
 }
-
-export type ProxySortOrder = 'default' | 'name' | 'ping'
-
-export type AutoDnsMode = 'disabled' | 'enabled' | 'with_filter'
 
 export interface AppSettings {
   theme: ThemeMode
@@ -26,15 +19,6 @@ export interface AppSettings {
   backupCore: boolean
   githubProxies: string[]
   xrayRepo: string
-  mihomoRepo: string
-  pingTestUrl: string
-  pingTestTimeout: number
-  showSourceName: boolean
-  closeConnectionsOnApply: boolean
-  hideUnavailableProxies: boolean
-  hideUnavailableProxiesCounter: number
-  proxySortOrder: ProxySortOrder
-  autoDns: AutoDnsMode
   timezone: number
   authEnabled: boolean
   multiRouter: boolean
@@ -45,15 +29,6 @@ export interface ProxySubscriptionInfo {
   Download?: number
   Total?: number
   Expire?: number
-}
-
-export interface ProxyProvider {
-  name: string
-  type: string
-  vehicleType: string
-  proxies?: Array<unknown>
-  updatedAt?: string
-  subscriptionInfo?: ProxySubscriptionInfo
 }
 
 /** Сервер подписки Xray (краткая сводка, без ключей). */
@@ -90,16 +65,8 @@ export interface XraySubscription {
   server_list?: XraySubscriptionServer[]
   /** Подписка «Для прокси»: проксируемые правила routing направлены на её тег. */
   proxy?: boolean
-}
-
-export interface RuleProvider {
-  name: string
-  type: string
-  vehicleType: string
-  ruleCount?: number
-  format?: string
-  behavior?: string
-  updatedAt?: string
+  /** Название от провайдера (profile-title и т.п.), задаёт backend. */
+  title?: string
 }
 
 export type ServiceStatus = 'loading' | 'running' | 'stopped' | 'pending'
@@ -126,37 +93,6 @@ export interface ToastMessage {
   action?: ToastAction
 }
 
-export interface ConnectionMetadata {
-  network: string
-  type: string
-  sourceIP: string
-  destinationIP: string
-  sourcePort: string
-  destinationPort: string
-  inboundIP: string
-  inboundPort: string
-  inboundName: string
-  host: string
-  dnsMode: string
-  uid: number
-  process: string
-  processPath: string
-  remoteDestination: string
-  sniffHost: string
-}
-
-export interface Connection {
-  id: string
-  metadata: ConnectionMetadata
-  upload: number
-  download: number
-  start: string
-  chains: string[]
-  providerChains: string[]
-  rule: string
-  rulePayload: string
-}
-
 export interface AppState {
   serviceStatus: ServiceStatus
   pendingText: string
@@ -169,16 +105,10 @@ export interface AppState {
   version: string
   isOutdatedUI: boolean
   isOutdatedCore: boolean
-  clashApiPort: string | null
-  clashApiSecret: string | null
-  clashApiUnix: string | null
-  connections: Connection[]
-  wsConnected: boolean
   showDirtyModal: boolean
   showCoreManageModal: boolean
   showUpdateModal: boolean
   showImportModal: boolean
-  showImportAmneziaModal: boolean
   showTemplateModal: boolean
   showSettingsModal: boolean
   showCommentsWarningModal: boolean
@@ -204,9 +134,6 @@ export type AppAction =
   | { type: 'SAVE_CONFIG'; index: number; content: string }
   | { type: 'SET_SETTINGS'; settings: Partial<AppSettings> }
   | { type: 'SET_VERSION'; version: string; isOutdatedUI: boolean; isOutdatedCore: boolean }
-  | { type: 'SET_DASHBOARD_PORT'; port: string | null; secret?: string | null; unix?: string | null }
-  | { type: 'SET_CONNECTIONS'; connections: Connection[]; wsConnected?: boolean }
-  | { type: 'SET_WS_CONNECTED'; connected: boolean }
   | {
       type: 'SHOW_MODAL'
       modal: keyof Pick<
@@ -215,7 +142,6 @@ export type AppAction =
         | 'showCoreManageModal'
         | 'showUpdateModal'
         | 'showImportModal'
-        | 'showImportAmneziaModal'
         | 'showTemplateModal'
         | 'showSettingsModal'
         | 'showCommentsWarningModal'

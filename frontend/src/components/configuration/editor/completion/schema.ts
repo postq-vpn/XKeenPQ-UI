@@ -1,5 +1,5 @@
 /**
- * Schema model for context-aware autocompletion (Xray JSON / Mihomo YAML configs).
+ * Schema model for context-aware autocompletion (Xray JSON configs).
  *
  * Build trees with the helpers below instead of object literals, so the shape stays consistent:
  *

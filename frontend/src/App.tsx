@@ -8,7 +8,6 @@ import { ImportModal } from './components/modals/AddOutbound'
 import { CommentsWarningModal } from './components/modals/CommentsWarning'
 import { CoreManageModal } from './components/modals/CoreManagement'
 import { GeoScanModal } from './components/modals/GeoScan'
-import { ImportAmneziaModal } from './components/modals/ImportAmnezia'
 import { RouteTesterModal } from './components/modals/RouteTester'
 import { SettingsModal } from './components/modals/Settings'
 import { TemplateModal } from './components/modals/Templates'
@@ -16,32 +15,14 @@ import { UpdateModal } from './components/modals/Update'
 import { XrayServerDialog } from './components/modals/XraySubscriptions'
 import { StatusBar } from './components/status/StatusBar'
 import { Toast } from './components/ui/toast'
-import { apiCall, capitalize } from './lib/api'
+import { apiCall } from './lib/api'
 import { useLazyMount } from './lib/loader'
 import { ONLINE_PING_INTERVAL_MS, LOCAL_ROUTER_ID, routerId } from './lib/multi-routers/model'
 import { applyRoutersFromSettings, refreshAllOnline } from './lib/multi-routers/actions'
 import { useRoutersStore } from './lib/multi-routers/store'
-import { listMihomoTakenNames, replaceMihomoProvider, replaceMihomoProxy } from './lib/mihomoReplace'
-import {
-  fetchClashProxies,
-  fetchClashRuleProviders,
-  getAppState,
-  syncClashApiPort,
-  useAppActions,
-  useModalContext,
-  useSettings,
-} from './lib/store'
+import { getAppState, useAppActions, useModalContext, useSettings } from './lib/store'
 import { applyTheme, THEME_MEDIA_QUERY } from './lib/theme'
-import {
-  DEFAULT_MIHOMO_REPO,
-  DEFAULT_PING_TEST_TIMEOUT,
-  DEFAULT_PING_TEST_URL,
-  DEFAULT_XRAY_REPO,
-  type Config,
-  type ThemeMode,
-  type XraySubscription,
-} from './lib/types'
-import { parseClashApiCredentials } from './lib/utils'
+import { DEFAULT_XRAY_REPO, type Config, type ThemeMode, type XraySubscription } from './lib/types'
 import { parse as parseJsonc } from 'jsonc-parser'
 
 function useThemeMode(theme: ThemeMode) {
@@ -58,22 +39,18 @@ function useThemeMode(theme: ThemeMode) {
 }
 
 interface ModalManagerProps {
-  onSwitchCore: (core: string) => void
   onInstalled: () => void
-  onGenerate: (uri: string, excludeName?: string) => { content: string; type: string } | null
-  onAddToConfig: (content: string, type: string, position: 'start' | 'end') => void
-  onReplace: (kind: 'proxy' | 'provider', content: string, oldName: string, renameRefs: boolean) => void
+  onGenerate: (uri: string) => { content: string; type: string } | null
+  onAddToConfig: (content: string, position: 'start' | 'end') => void
   onImportTemplate: (url: string) => Promise<void>
   onSubscriptionSaved: () => void
   openModal: (modal: string) => void
 }
 
 const ModalManager = memo(function ModalManager({
-  onSwitchCore,
   onInstalled,
   onGenerate,
   onAddToConfig,
-  onReplace,
   onImportTemplate,
   onSubscriptionSaved,
   openModal,
@@ -84,7 +61,6 @@ const ModalManager = memo(function ModalManager({
   const mountCoreManage = useLazyMount(modals.showCoreManageModal)
   const mountUpdate = useLazyMount(modals.showUpdateModal)
   const mountImport = useLazyMount(modals.showImportModal)
-  const mountAmneziaImport = useLazyMount(modals.showImportAmneziaModal)
   const mountTemplate = useLazyMount(modals.showTemplateModal)
   const mountSettings = useLazyMount(modals.showSettingsModal)
   const mountGeoScan = useLazyMount(modals.showGeoScanModal)
@@ -104,7 +80,6 @@ const ModalManager = memo(function ModalManager({
       {mountCommentsWarning && <CommentsWarningModal />}
       {mountCoreManage && (
         <CoreManageModal
-          onSwitchCore={onSwitchCore}
           onOpenUpdate={(core: string) => {
             dispatch({ type: 'SET_UPDATE_MODAL_CORE', core })
             openModal('showUpdateModal')
@@ -116,7 +91,6 @@ const ModalManager = memo(function ModalManager({
         <ImportModal
           onGenerate={onGenerate}
           onAddToConfig={onAddToConfig}
-          onReplace={onReplace}
           onSubscriptionSaved={handleSubscriptionSaved}
         />
       )}
@@ -128,7 +102,6 @@ const ModalManager = memo(function ModalManager({
           onSubscriptionSaved()
         }}
       />
-      {mountAmneziaImport && <ImportAmneziaModal onAddToConfig={onAddToConfig} />}
       {mountTemplate && <TemplateModal onImport={onImportTemplate} />}
       {mountSettings && <SettingsModal />}
       {mountGeoScan && <GeoScanModal />}
@@ -161,24 +134,13 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
   }, [dispatch])
 
   const loadConfigs = useCallback(
-    async (core?: string, skipProxies = false, silent = false): Promise<Config[]> => {
+    async (silent = false): Promise<Config[]> => {
       if (!silent) dispatch({ type: 'SET_CONFIGS_LOADING', loading: true })
       try {
-        const result = await apiCall<any>('GET', core ? `configs?core=${core}` : 'configs')
+        const result = await apiCall<any>('GET', 'configs')
         if (result.success && result.configs) {
           const configs: Config[] = result.configs.map((c: any) => ({ ...c, savedContent: c.content, isDirty: false }))
           dispatch({ type: 'SET_CONFIGS', configs })
-          const yamlConfig = configs.find((c: any) => c.file.endsWith('/config.yaml') || c.file === 'config.yaml')
-          const { port, secret, unix } = yamlConfig
-            ? parseClashApiCredentials(yamlConfig.content)
-            : { port: null, secret: null, unix: null }
-          dispatch({ type: 'SET_DASHBOARD_PORT', port, secret, unix } as any)
-          const appState = getAppState()
-          const activeCores = core ?? appState.currentCore
-          if ((port || unix) && activeCores === 'mihomo' && !skipProxies && appState.serviceStatus === 'running') {
-            fetchClashProxies(port ?? '', secret, false, unix)
-            fetchClashRuleProviders(port ?? '', secret, unix)
-          }
           return configs
         } else {
           if (!silent) dispatch({ type: 'SET_CONFIGS_LOADING', loading: false })
@@ -202,14 +164,9 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
         const ui = data['xkeen-ui']
         if (!ui) return
 
-        let isOutdatedCore = false
-        const coreVersions: Record<string, string> = {}
-        for (const core of ['mihomo', 'xray']) {
-          if (data[core]?.version) {
-            coreVersions[core] = data[core].version
-            if (data[core].outdated) isOutdatedCore = true
-          }
-        }
+        const xray = data.xray
+        const isOutdatedCore = !!xray?.outdated
+        const coreVersions: Record<string, string> = xray?.version ? { xray: xray.version } : {}
 
         dispatch({
           type: 'SET_VERSION',
@@ -238,18 +195,14 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
             ...(ui.link && { action: { url: ui.link } }),
           })
 
-        for (const core of ['mihomo', 'xray']) {
-          const entry = data[core]
-          if (entry?.show_toast) {
-            showToast({
-              title: 'Доступно обновление',
-              body: `Доступна новая версия ${capitalize(core)}`,
-              persistent: true,
-              id: `update-${core}`,
-              ...(entry.link ? { action: { url: entry.link } } : {}),
-            })
-          }
-        }
+        if (xray?.show_toast)
+          showToast({
+            title: 'Доступно обновление',
+            body: 'Доступна новая версия Xray',
+            persistent: true,
+            id: 'update-xray',
+            ...(xray.link ? { action: { url: xray.link } } : {}),
+          })
       } catch {
         /* ignore */
       }
@@ -272,15 +225,6 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
             backupCore: data.updater.backup_core,
             githubProxies: data.updater.github_proxy || [],
             xrayRepo: data.updater.xray_repo ?? DEFAULT_XRAY_REPO,
-            mihomoRepo: data.updater.mihomo_repo ?? DEFAULT_MIHOMO_REPO,
-            pingTestUrl: data.clash_api?.ping_url ?? DEFAULT_PING_TEST_URL,
-            pingTestTimeout: data.clash_api?.ping_timeout ?? DEFAULT_PING_TEST_TIMEOUT,
-            showSourceName: data.clash_api?.show_source_name ?? false,
-            closeConnectionsOnApply: data.clash_api?.close_connections_on_apply ?? false,
-            hideUnavailableProxies: data.clash_api?.hide_unavailable_proxies ?? false,
-            hideUnavailableProxiesCounter: data.clash_api?.hide_unavailable_proxies_counter ?? 3,
-            proxySortOrder: data.clash_api?.proxy_sort_order ?? 'default',
-            autoDns: data.clash_api?.auto_dns ?? 'disabled',
             timezone: data.log.timezone,
             authEnabled: !!data.auth?.enabled,
             multiRouter: data.plugins?.multi_router ?? false,
@@ -296,7 +240,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
       try {
         await loadSettings()
         const currentCore = await checkStatus()
-        if (currentCore) loadConfigs(currentCore)
+        if (currentCore) loadConfigs()
         checkVersion(true)
       } catch {
         showToast('Ошибка инициализации', 'error')
@@ -314,70 +258,33 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     return () => clearInterval(timer)
   }, [onlineTargetsKey, multiRouter])
 
-  const refreshConfigsSilently = useCallback(() => loadConfigs(undefined, false, true), [loadConfigs])
+  const refreshConfigsSilently = useCallback(() => loadConfigs(true), [loadConfigs])
 
-  const switchCore = useCallback(
-    async (core: string) => {
-      const appState = getAppState()
-      if (core === appState.currentCore) {
-        showToast('Это ядро уже активно', 'error')
-        return
-      }
-      dispatch({ type: 'SHOW_MODAL', modal: 'showCoreManageModal', show: false })
-      dispatch({ type: 'SET_SERVICE_STATUS', status: 'pending', pendingText: 'Переключение...' })
-      const configs = await loadConfigs(core, true)
-      const mihomoYamlEmpty =
-        core === 'mihomo' && !configs.find((c) => c.file.endsWith('/config.yaml') || c.file === 'config.yaml')?.content.trim()
-      const result = await apiCall<any>('POST', 'control', { action: 'switchCore', core })
-      showToast(result.success ? `Ядро изменено на ${capitalize(core)}` : `Ошибка: ${result.error}`, result.success ? 'success' : 'error')
-      const data = await apiCall<any>('GET', 'control')
-      if (data.success) {
-        dispatch({
-          type: 'SET_CORE_INFO',
-          currentCore: data.currentCore,
-          coreVersions: getAppState().coreVersions,
-          availableCores: data.cores,
-        })
-        dispatch({ type: 'SET_SERVICE_STATUS', status: data.running ? 'running' : 'stopped' })
-        if (result.success && mihomoYamlEmpty) await loadConfigs(core)
-        else if (result.success) syncClashApiPort(200)
-      }
-    },
-    [dispatch, showToast, loadConfigs]
-  )
-
-  const generateConfig = useCallback((uri: string, excludeName?: string) => {
-    const appState = getAppState()
-    const currentCore = appState.currentCore
-    let existingConfig = editorRef.current?.getValue() ?? ''
-    if (currentCore === 'mihomo') {
-      const yamlConfig = appState.configs.find((c) => c.file.endsWith('/config.yaml') || c.file === 'config.yaml')
-      existingConfig = yamlConfig ? yamlConfig.content : existingConfig
-    }
-    // При замене прокси (excludeName) передаём точный список занятых имён вместо substring-хака над текстом
-    // конфига — иначе "hk" вырезался бы и из "hk-2", "hk.example.com" и т.п.
-    const existingParam: string | string[] = excludeName
-      ? listMihomoTakenNames(existingConfig).filter((n) => n !== excludeName)
-      : existingConfig
-    if (typeof (window as any).generateConfigForCore === 'function')
-      return (window as any).generateConfigForCore(uri, currentCore, existingParam)
+  const generateConfig = useCallback((uri: string) => {
+    const existingConfig = editorRef.current?.getValue() ?? ''
+    if (typeof (window as any).generateOutbound === 'function') return (window as any).generateOutbound(uri, existingConfig)
     throw new Error('Parser not loaded')
   }, [])
 
   const importTemplate = useCallback(
     async (url: string) => {
-      const appState = getAppState()
-      const activeIndex = configActionsRef.current.getActiveIndex()
-      let targetIndex = activeIndex
-      if (appState.currentCore === 'mihomo') {
-        targetIndex = appState.configs.findIndex((c) => c.file.endsWith('/config.yaml') || c.file === 'config.yaml')
-        if (targetIndex === -1) throw new Error('Файл config.yaml не найден')
-      }
-      if (appState.configs[targetIndex]?.isDirty && !confirm('Несохраненные изменения будут потеряны. Продолжить?'))
-        throw new Error('Отменено')
       const res = await fetch(url)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const content = await res.text()
+
+      // Шаблон открываем в файле по его разделу: { "routing": … } — в *routing*.json и т.п.
+      const appState = getAppState()
+      const activeIndex = configActionsRef.current.getActiveIndex()
+      let targetIndex = activeIndex
+      try {
+        const section = Object.keys(parseJsonc(content) ?? {})[0]
+        const index = section ? appState.configs.findIndex((c) => (c.file.split('/').pop() ?? '').includes(section)) : -1
+        if (index >= 0) targetIndex = index
+      } catch {
+        /* не JSON — в текущий файл */
+      }
+      if (appState.configs[targetIndex]?.isDirty && !confirm('Несохраненные изменения будут потеряны. Продолжить?'))
+        throw new Error('Отменено')
       if (targetIndex !== activeIndex) configActionsRef.current.switchTab(targetIndex)
       setTimeout(() => {
         if (!editorRef.current) return
@@ -390,37 +297,23 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
   )
 
   const addToConfig = useCallback(
-    (generated: string, type: string, position: 'start' | 'end') => {
+    (generated: string, position: 'start' | 'end') => {
       const appState = getAppState()
-      const core = appState.currentCore
       let targetIndex = configActionsRef.current.getActiveIndex()
 
-      if (core === 'mihomo') {
-        targetIndex = appState.configs.findIndex((c) => c.file.endsWith('/config.yaml') || c.file === 'config.yaml')
-        if (targetIndex === -1) {
-          showToast('Файл config.yaml не найден', 'error')
-          return
-        }
-      } else {
-        try {
+      try {
+        const obj = parseJsonc(appState.configs[targetIndex].content)
+        if (!Array.isArray(obj.outbounds)) throw new Error()
+      } catch {
+        targetIndex = appState.configs.findIndex((cfg) => {
           try {
-            const obj = parseJsonc(appState.configs[targetIndex].content)
-            if (!Array.isArray(obj.outbounds)) throw new Error()
+            return Array.isArray(parseJsonc(cfg.content).outbounds)
           } catch {
-            targetIndex = appState.configs.findIndex((cfg) => {
-              try {
-                return Array.isArray(parseJsonc(cfg.content).outbounds)
-              } catch {
-                return false
-              }
-            })
-            if (targetIndex === -1) {
-              showToast('Массив outbounds не найден', 'error')
-              return
-            }
+            return false
           }
-        } catch (e: any) {
-          showToast(`${e.message}`, 'error')
+        })
+        if (targetIndex === -1) {
+          showToast('Массив outbounds не найден', 'error')
           return
         }
       }
@@ -430,106 +323,14 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
       setTimeout(() => {
         const editorWrapper = editorRef.current
         if (!editorWrapper) return
-        let current = editorWrapper.getValue()
-        const lineAtOffset = (text: string, offset: number) => text.slice(0, Math.min(offset, text.length)).split('\n').length
-        const scrollToLine = (line: number) => setTimeout(() => editorWrapper.revealLine(Math.max(1, line)), 0)
-        const insertAtOffset = (offset: number, text: string, scrollLine?: number) => {
-          editorWrapper.replaceRange(offset, offset, text)
-          scrollToLine(scrollLine ?? editorWrapper.offsetToLineColumn(offset).lineNumber)
-        }
-
-        if (core === 'mihomo') {
-          const marker = type === 'proxy' ? 'proxies:' : 'proxy-providers:'
-          const markerRegex = new RegExp(`^${marker}(.*)$`, 'm')
-          const markerMatch = current.match(markerRegex)
-
-          if (!markerMatch) {
-            const eofStr = current.endsWith('\n') ? '' : '\n'
-            const insertPos = current.length
-            const targetLine = lineAtOffset(current, insertPos) + (eofStr ? 2 : 1)
-            insertAtOffset(insertPos, `${eofStr}${marker}\n${generated}\n`, targetLine)
-            return
-          }
-
-          const markerIdx = markerMatch.index!
-          let markerLineEnd = current.indexOf('\n', markerIdx)
-          if (markerLineEnd === -1) markerLineEnd = current.length
-          else markerLineEnd += 1
-
-          const lineContent = markerMatch[1].trim()
-          if (lineContent === '[]' || lineContent === 'null') {
-            const pre = current.slice(0, markerIdx)
-            const post = current.slice(markerLineEnd)
-            current = pre + marker + '\n' + post
-            editorWrapper.replaceAll(current)
-            markerLineEnd = markerIdx + marker.length + 1
-          }
-
-          if (position === 'start') {
-            const line = lineAtOffset(current, markerLineEnd)
-            insertAtOffset(markerLineEnd, generated + '\n', line)
-          } else {
-            const afterMarker = markerLineEnd
-            const nextKeyMatch = current.slice(afterMarker).search(/^[a-zA-Z0-9_-]+:/m)
-            const insertOffset = nextKeyMatch === -1 ? current.length : afterMarker + nextKeyMatch
-            let textToInsert = generated + '\n'
-
-            let targetLine = lineAtOffset(current, insertOffset)
-
-            if (nextKeyMatch === -1 && !current.endsWith('\n')) {
-              textToInsert = '\n' + textToInsert
-              targetLine += 1
-            }
-
-            insertAtOffset(insertOffset, textToInsert, targetLine)
-          }
-        } else {
-          try {
-            const obj = parseJsonc(current)
-            if (position === 'start') obj.outbounds.unshift(JSON.parse(generated))
-            else obj.outbounds.push(JSON.parse(generated))
-            editorWrapper.replaceAll(JSON.stringify(obj, null, 2))
-            scrollToLine(position === 'start' ? 1 : editorWrapper.getLineCount())
-          } catch (e: any) {
-            showToast(`Ошибка парсинга: ${e.message}`, 'error')
-          }
-        }
-      }, 150)
-    },
-    [showToast]
-  )
-
-  const onReplace = useCallback(
-    (kind: 'proxy' | 'provider', content: string, oldName: string, renameRefs: boolean) => {
-      const appState = getAppState()
-      const targetIndex = appState.configs.findIndex((c) => c.file.endsWith('/config.yaml') || c.file === 'config.yaml')
-
-      if (targetIndex === -1) {
-        showToast('Файл config.yaml не найден', 'error')
-        return
-      }
-
-      if (targetIndex !== configActionsRef.current.getActiveIndex()) configActionsRef.current.switchTab(targetIndex)
-
-      setTimeout(() => {
-        const editorWrapper = editorRef.current
-        if (!editorWrapper) return
         try {
-          const buffer = editorWrapper.getValue()
-          const res =
-            kind === 'proxy'
-              ? replaceMihomoProxy(buffer, oldName, content, { renameRefs })
-              : replaceMihomoProvider(buffer, oldName, content, { renameRefs })
-          editorWrapper.replaceAll(res.text)
-          setTimeout(() => editorWrapper.revealLine(res.line), 0)
-          const label = kind === 'proxy' ? 'Прокси' : 'Провайдер'
-          const message =
-            res.name !== oldName
-              ? `${label} «${oldName}» заменён на «${res.name}»${res.refs > 0 ? `, обновлено ссылок: ${res.refs}` : ''}`
-              : `${label} «${oldName}» заменён`
-          showToast(message)
+          const obj = parseJsonc(editorWrapper.getValue())
+          if (position === 'start') obj.outbounds.unshift(JSON.parse(generated))
+          else obj.outbounds.push(JSON.parse(generated))
+          editorWrapper.replaceAll(JSON.stringify(obj, null, 2))
+          setTimeout(() => editorWrapper.revealLine(position === 'start' ? 1 : editorWrapper.getLineCount()), 0)
         } catch (e: any) {
-          showToast(e.message, 'error')
+          showToast(`Ошибка парсинга: ${e.message}`, 'error')
         }
       }, 150)
     },
@@ -544,7 +345,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
   )
 
   return (
-    <div className="bg-muted dark:bg-background flex min-h-dvh flex-col">
+    <div className="bg-muted dark:bg-background app-background flex min-h-dvh flex-col">
       <main className="flex flex-1 flex-col">
         <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-3 px-3 py-3">
           <StatusBar
@@ -561,7 +362,6 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
             editorRef={editorRef}
             configActionsRef={configActionsRef}
             onOpenImport={() => openModal('showImportModal')}
-            onOpenImportAmnezia={() => openModal('showImportAmneziaModal')}
             onOpenTemplate={() => openModal('showTemplateModal')}
             onOpenGeoScan={() => openModal('showGeoScanModal')}
             onOpenRouteTest={() => openModal('showRouteTestModal')}
@@ -573,11 +373,9 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
       </main>
       <Toast />
       <ModalManager
-        onSwitchCore={switchCore}
         onInstalled={onInstalled}
         onGenerate={generateConfig}
         onAddToConfig={addToConfig}
-        onReplace={onReplace}
         onImportTemplate={importTemplate}
         onSubscriptionSaved={refreshConfigsSilently}
         openModal={openModal}

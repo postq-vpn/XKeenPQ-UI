@@ -9,11 +9,11 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { IconAlertCircle, IconChevronDown, IconChevronUp, IconSettings, IconX, IconArrowBackUp } from '@tabler/icons-react'
+import { IconAlertCircle, IconSettings, IconX, IconArrowBackUp } from '@tabler/icons-react'
 import { Fragment, memo, useCallback, useState } from 'react'
 import { apiCall } from '../../lib/api'
 import { useAppContext, useModalContext } from '../../lib/store'
-import type { AppSettings, AutoDnsMode, ProxySortOrder, ThemeMode } from '../../lib/types'
+import type { AppSettings, ThemeMode } from '../../lib/types'
 
 type BooleanSettingKey = {
   [K in keyof AppSettings]: AppSettings[K] extends boolean ? K : never
@@ -74,23 +74,6 @@ const updateSettings: ToggleSetting[] = [
     path: 'updater.backup_core',
     title: 'Бэкап ядра',
     description: 'Сохранять резервную копию ядра при обновлении',
-  },
-]
-
-const clashApiSettings: ToggleSetting[] = [
-  {
-    id: 'show-source-name',
-    key: 'showSourceName',
-    path: 'clash_api.show_source_name',
-    title: 'Показывать имя источника',
-    description: 'Отображать имя клиента Keenetic вместо IP-адреса. Требуется актуальная версия KeeneticOS',
-  },
-  {
-    id: 'close-conns-on-apply',
-    key: 'closeConnectionsOnApply',
-    path: 'clash_api.close_connections_on_apply',
-    title: 'Автозакрытие при применении',
-    description: 'Закрывать все соединения после успешного применения конфига Mihomo',
   },
 ]
 
@@ -222,7 +205,7 @@ const ProxySettingsField = memo(function ProxySettingsField({
   )
 })
 
-type RepoSourceKey = 'xrayRepo' | 'mihomoRepo'
+type RepoSourceKey = 'xrayRepo'
 
 const GITHUB_REPO_PREFIX = 'https://github.com/'
 
@@ -256,7 +239,7 @@ const RepoSourceField = memo(function RepoSourceField({
 }) {
   const [draft, setDraft] = useState(value)
 
-  const defaultUrl = repoKey === 'xrayRepo' ? 'https://github.com/XTLS/Xray-core' : 'https://github.com/MetaCubeX/mihomo'
+  const defaultUrl = 'https://github.com/XTLS/Xray-core'
 
   const invalid = normalizeGitHubRepoUrl(draft) === null
 
@@ -316,185 +299,6 @@ const RepoSourceField = memo(function RepoSourceField({
       </Field>
       {invalid && <FieldError>Некорректный URL</FieldError>}
     </Field>
-  )
-})
-
-const PING_URL_PRESETS = [
-  'www.google.com/generate_204',
-  'www.youtube.com/generate_204',
-  'www.gstatic.com/generate_204',
-  'connectivitycheck.gstatic.com/generate_204',
-  'cp.cloudflare.com/generate_204',
-] as const
-
-const PING_URL_CUSTOM = '__custom__'
-
-function parsePingUrl(raw: string): { protocol: string; host: string; custom: boolean } {
-  const match = raw.match(/^(https?):\/\/(.+)$/i)
-  const protocol = match?.[1]?.toLowerCase() ?? 'https'
-  const host = match?.[2] ?? raw
-  return { protocol, host, custom: !(PING_URL_PRESETS as readonly string[]).includes(host) }
-}
-
-const PingTestSettingsField = memo(function PingTestSettingsField({
-  pingUrl,
-  pingTimeout,
-  onSave,
-  showToast,
-}: {
-  pingUrl: string
-  pingTimeout: number
-  onSave: (url: string, timeout: number) => Promise<boolean>
-  showToast: (msg: string, type?: 'success' | 'error') => void
-}) {
-  const [initial] = useState(() => parsePingUrl(pingUrl))
-  const [protocol, setProtocol] = useState(initial.protocol)
-  const [host, setHost] = useState(initial.host)
-  const [custom, setCustom] = useState(initial.custom)
-  const [timeout, setTimeout] = useState(String(pingTimeout))
-
-  const save = useCallback(async () => {
-    const tHost = host.trim()
-    const tTimeout = Number(timeout)
-    if (!tHost) return showToast('URL пинг-теста пустой', 'error')
-    if (!(Number.isInteger(tTimeout) && tTimeout > 0)) return showToast('Таймаут должен быть целым числом больше 0', 'error')
-    const tUrl = `${protocol}://${tHost}`
-    if (tUrl === pingUrl && tTimeout === pingTimeout) return
-    const ok = await onSave(tUrl, tTimeout)
-    if (ok) {
-      setHost(tHost)
-      setTimeout(String(tTimeout))
-    }
-  }, [onSave, pingUrl, pingTimeout, showToast, timeout, host, protocol])
-
-  const saveHost = useCallback(
-    async (newHost: string, newProtocol: string) => {
-      const tHost = newHost.trim()
-      const tTimeout = Number(timeout)
-      if (!tHost) return showToast('URL пинг-теста пустой', 'error')
-      if (!(Number.isInteger(tTimeout) && tTimeout > 0)) return showToast('Таймаут должен быть целым числом больше 0', 'error')
-      const tUrl = `${newProtocol}://${tHost}`
-      if (tUrl === pingUrl && tTimeout === pingTimeout) return
-      const ok = await onSave(tUrl, tTimeout)
-      if (ok) {
-        setHost(tHost)
-        setProtocol(newProtocol)
-        setTimeout(String(tTimeout))
-      }
-    },
-    [onSave, pingUrl, pingTimeout, showToast, timeout]
-  )
-
-  const hostSelectValue = custom ? PING_URL_CUSTOM : host
-
-  return (
-    <FieldGroup className="gap-0!">
-      <Field className="px-0 py-3">
-        <FieldContent>
-          <FieldLabel>URL пинга</FieldLabel>
-          <FieldDescription className="text-[13px]">Адрес для ручного пинг-теста через Clash API</FieldDescription>
-        </FieldContent>
-        <div className="flex items-center gap-2">
-          <Select
-            value={protocol}
-            items={{ http: 'http', https: 'https' }}
-            onValueChange={(value) => {
-              setProtocol(value)
-              void saveHost(host, value)
-            }}
-          >
-            <SelectTrigger className="w-24 text-sm" aria-label="Протокол">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="http" className="text-sm">
-                  http
-                </SelectItem>
-                <SelectItem value="https" className="text-sm">
-                  https
-                </SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={hostSelectValue}
-            items={{
-              ...Object.fromEntries(PING_URL_PRESETS.map((p) => [p, p])),
-              [PING_URL_CUSTOM]: 'Свой URL...',
-            }}
-            onValueChange={(value) => {
-              if (value === PING_URL_CUSTOM) {
-                setCustom(true)
-              } else {
-                setHost(value)
-                setCustom(false)
-                void saveHost(value, protocol)
-              }
-            }}
-          >
-            <SelectTrigger className="min-w-0 flex-1 text-sm" aria-label="Хост">
-              {custom ? <span className="text-muted-foreground">Свой URL...</span> : <SelectValue />}
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {PING_URL_PRESETS.map((item) => (
-                  <SelectItem key={item} value={item} className="text-sm">
-                    {item}
-                  </SelectItem>
-                ))}
-                <SelectItem value={PING_URL_CUSTOM} className="text-muted-foreground text-sm">
-                  Свой URL...
-                </SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {custom && (
-          <InputGroup>
-            <InputGroupAddon align="inline-start">{protocol}://</InputGroupAddon>
-            <InputGroupInput
-              value={host}
-              onChange={(e) => setHost(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && void save()}
-              onBlur={() => void save()}
-              placeholder="www.example.com/generate_204"
-              aria-label="Свой URL пинга"
-              className="pl-0! text-sm placeholder:text-sm"
-            />
-          </InputGroup>
-        )}
-      </Field>
-
-      <Separator className="my-0" />
-
-      <Field className="px-0 py-3">
-        <FieldContent>
-          <FieldLabel htmlFor="ping-test-timeout">Таймаут</FieldLabel>
-          <FieldDescription className="text-[13px]">В мс, используется для ручного пинг-теста подключений</FieldDescription>
-        </FieldContent>
-        <InputGroup className="max-w-40">
-          <InputGroupInput
-            id="ping-test-timeout"
-            type="number"
-            min={1}
-            step={100}
-            inputMode="numeric"
-            className="[appearance:textfield] text-sm [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-            value={timeout}
-            onChange={(e) => setTimeout(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && void save()}
-            onBlur={() => void save()}
-            placeholder="5000"
-          />
-          <InputGroupAddon align="inline-end" className="text-muted-foreground px-2 text-xs">
-            мс
-          </InputGroupAddon>
-        </InputGroup>
-      </Field>
-    </FieldGroup>
   )
 })
 
@@ -575,7 +379,7 @@ export function SettingsModal() {
       const [section, key] = path.split('.')
       try {
         const body: Record<string, unknown> = {}
-        if (['gui', 'updater', 'log', 'auth', 'clash_api', 'plugins'].includes(section)) body[section] = key ? { [key]: value } : value
+        if (['gui', 'updater', 'log', 'auth', 'plugins'].includes(section)) body[section] = key ? { [key]: value } : value
         const result = await apiCall<any>('PATCH', 'settings', body)
         if (!result.success) {
           showToast('Ошибка: ' + result.error, 'error')
@@ -644,7 +448,7 @@ export function SettingsModal() {
 
   const saveRepoSource = useCallback(
     async (key: RepoSourceKey, url: string) => {
-      const ok = await saveSetting(key === 'xrayRepo' ? 'updater.xray_repo' : 'updater.mihomo_repo', url)
+      const ok = await saveSetting('updater.xray_repo', url)
       if (ok) dispatch({ type: 'SET_SETTINGS', settings: { [key]: url } })
       return ok
     },
@@ -659,47 +463,6 @@ export function SettingsModal() {
     },
     [dispatch, saveSetting]
   )
-
-  const savePingTestSettings = useCallback(
-    async (url: string, timeout: number) => {
-      const ok = await saveSetting('clash_api', { ping_url: url, ping_timeout: timeout })
-      if (ok) dispatch({ type: 'SET_SETTINGS', settings: { pingTestUrl: url, pingTestTimeout: timeout } })
-      return ok
-    },
-    [dispatch, saveSetting]
-  )
-
-  const toggleHideUnavailable = useCallback(
-    async (value: boolean) => {
-      const ok = await saveSetting('clash_api', { hide_unavailable_proxies: value })
-      if (ok) dispatch({ type: 'SET_SETTINGS', settings: { hideUnavailableProxies: value } })
-    },
-    [dispatch, saveSetting]
-  )
-
-  const setProxySortOrder = useCallback(
-    async (value: string) => {
-      const ok = await saveSetting('clash_api', { proxy_sort_order: value })
-      if (ok) dispatch({ type: 'SET_SETTINGS', settings: { proxySortOrder: value as ProxySortOrder } })
-    },
-    [dispatch, saveSetting]
-  )
-
-  const setHideCounter = useCallback(
-    async (value: number) => {
-      const v = Math.max(1, Math.min(10, value))
-      if (v === settings.hideUnavailableProxiesCounter) return
-      const ok = await saveSetting('clash_api', { hide_unavailable_proxies_counter: v })
-      if (ok) dispatch({ type: 'SET_SETTINGS', settings: { hideUnavailableProxiesCounter: v } })
-    },
-    [dispatch, saveSetting, settings.hideUnavailableProxiesCounter]
-  )
-
-  const sortOrderOptions: { value: ProxySortOrder; label: string }[] = [
-    { value: 'default', label: 'По-умолчанию' },
-    { value: 'name', label: 'По названию' },
-    { value: 'ping', label: 'По пингу' },
-  ]
 
   return (
     <Dialog open={modals.showSettingsModal} onOpenChange={(open) => !open && close()}>
@@ -718,7 +481,6 @@ export function SettingsModal() {
             >
               <TabsTrigger value="general">Общие</TabsTrigger>
               <TabsTrigger value="gui">Режим GUI</TabsTrigger>
-              <TabsTrigger value="clash-api">Mihomo</TabsTrigger>
               <TabsTrigger value="updates">Обновления</TabsTrigger>
               <TabsTrigger value="plugins">Плагины</TabsTrigger>
             </TabsList>
@@ -809,133 +571,6 @@ export function SettingsModal() {
                 </FieldGroup>
               </TabsContent>
 
-              <TabsContent value="clash-api">
-                <p className="text-muted-foreground pt-3 pb-1 text-xs font-medium tracking-wider uppercase">Селекторы</p>
-                <FieldGroup className="gap-0!">
-                  <Field orientation="horizontal" className="px-0 py-3">
-                    <FieldContent>
-                      <FieldLabel htmlFor="hide-unavailable">Скрывать недоступные подключения</FieldLabel>
-                      <FieldDescription className="text-[13px]">
-                        Скрывать подключения из селекторов при наличии нескольких таймаутов подряд в истории проверок
-                      </FieldDescription>
-                    </FieldContent>
-                    <Switch
-                      id="hide-unavailable"
-                      checked={settings.hideUnavailableProxies}
-                      onCheckedChange={toggleHideUnavailable}
-                      aria-label="Скрывать недоступные подключения"
-                    />
-                  </Field>
-                  <Separator className="my-0" />
-                  <Field orientation="horizontal" className="px-0 py-3">
-                    <FieldContent>
-                      <FieldLabel htmlFor="hide-counter">Порог таймаутов</FieldLabel>
-                      <FieldDescription className="text-[13px]">Порог таймаутов подряд для скрытия подключений (1–10)</FieldDescription>
-                    </FieldContent>
-                    <InputGroup className="w-15">
-                      <InputGroupInput id="hide-counter" readOnly className="text-sm" value={settings.hideUnavailableProxiesCounter} />
-                      <InputGroupAddon align="inline-end" className="flex flex-col gap-0">
-                        <InputGroupButton
-                          aria-label="Увеличить"
-                          className="text-muted-foreground hover:text-foreground h-[calc(50%-0.5px)]! min-h-0! px-1 text-[9px]"
-                          onClick={() => void setHideCounter(settings.hideUnavailableProxiesCounter + 1)}
-                        >
-                          <IconChevronUp />
-                        </InputGroupButton>
-                        <InputGroupButton
-                          aria-label="Уменьшить"
-                          className="text-muted-foreground hover:text-foreground h-[calc(50%-0.5px)]! min-h-0! px-1 text-[9px]"
-                          onClick={() => void setHideCounter(settings.hideUnavailableProxiesCounter - 1)}
-                        >
-                          <IconChevronDown />
-                        </InputGroupButton>
-                      </InputGroupAddon>
-                    </InputGroup>
-                  </Field>
-                  <Separator className="my-0" />
-                  <Field orientation="horizontal" className="px-0 py-3">
-                    <FieldContent>
-                      <FieldLabel htmlFor="proxy-sort">Сортировка</FieldLabel>
-                      <FieldDescription className="text-[13px]">
-                        Порядок отображения подключений в списке. Не влияет на fallback логику
-                      </FieldDescription>
-                    </FieldContent>
-                    <Select
-                      value={settings.proxySortOrder}
-                      items={Object.fromEntries(sortOrderOptions.map((o) => [o.value, o.label]))}
-                      onValueChange={setProxySortOrder}
-                    >
-                      <SelectTrigger id="proxy-sort" className="w-39 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {sortOrderOptions.map((item) => (
-                            <SelectItem key={item.value} value={item.value} className="text-sm">
-                              {item.label}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Separator className="my-0" />
-                  <PingTestSettingsField
-                    key={`${settings.pingTestUrl}\x00${settings.pingTestTimeout}`}
-                    pingUrl={settings.pingTestUrl}
-                    pingTimeout={settings.pingTestTimeout}
-                    onSave={savePingTestSettings}
-                    showToast={showToast}
-                  />
-                </FieldGroup>
-                <Separator className="my-2" />
-                <p className="text-muted-foreground pt-3 pb-1 text-xs font-medium tracking-wider uppercase">Соединения</p>
-                <FieldGroup className="gap-0!">
-                  {clashApiSettings.map((item, index) => (
-                    <Fragment key={item.id}>
-                      <SwitchSettingField item={item} checked={settings[item.key]} onToggleSetting={toggleSetting} />
-                      {index < clashApiSettings.length - 1 && <Separator className="my-0" />}
-                    </Fragment>
-                  ))}
-                  <Separator className="my-0" />
-                  <p className="text-muted-foreground pt-3 pb-1 text-xs font-medium tracking-wider uppercase">DNS</p>
-                  <Field orientation="horizontal" className="px-0 py-3">
-                    <FieldContent>
-                      <FieldLabel htmlFor="auto-dns">Автовключение</FieldLabel>
-                      <FieldDescription className="text-[13px]">
-                        Автоматически включать управление DNS при ручном старте сервиса
-                      </FieldDescription>
-                    </FieldContent>
-                    <Select
-                      value={settings.autoDns}
-                      items={{ disabled: 'Выкл', enabled: 'Вкл', with_filter: 'Вкл с автонастройкой' }}
-                      onValueChange={(v) => {
-                        void saveSetting('clash_api', { auto_dns: v }).then((ok) => {
-                          if (ok) dispatch({ type: 'SET_SETTINGS', settings: { autoDns: v as AutoDnsMode } })
-                        })
-                      }}
-                    >
-                      <SelectTrigger id="auto-dns" className="w-51 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectItem value="disabled" className="text-sm">
-                            Выкл
-                          </SelectItem>
-                          <SelectItem value="enabled" className="text-sm">
-                            Вкл
-                          </SelectItem>
-                          <SelectItem value="with_filter" className="text-sm">
-                            Вкл с автонастройкой
-                          </SelectItem>
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                </FieldGroup>
-              </TabsContent>
-
               <TabsContent value="updates">
                 <FieldGroup className="gap-0!">
                   {updateSettings.map((item) => (
@@ -950,15 +585,6 @@ export function SettingsModal() {
                     label="Источник Xray"
                     description="Репозиторий GitHub, с которого загружаются/проверяются обновления Xray"
                     value={settings.xrayRepo}
-                    onSave={saveRepoSource}
-                    showToast={showToast}
-                  />
-                  <Separator className="my-0" />
-                  <RepoSourceField
-                    repoKey="mihomoRepo"
-                    label="Источник Mihomo"
-                    description="Репозиторий GitHub, с которого загружаются/проверяются обновления Mihomo"
-                    value={settings.mihomoRepo}
                     onSave={saveRepoSource}
                     showToast={showToast}
                   />

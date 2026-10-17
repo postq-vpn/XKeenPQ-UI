@@ -106,7 +106,7 @@ export function FlagPicker({ value, onAdd }: { value: string; onAdd: (next: stri
             type="button"
             variant="ghost"
             size="icon-xs"
-            className="text-muted-foreground hover:text-foreground size-6 hover:border-[#60a5fa] hover:bg-blue-500/15! active:translate-y-0"
+            className="text-muted-foreground hover:text-foreground size-6 hover:border-blue-400 hover:bg-blue-500/15! active:translate-y-0"
             aria-label="Добавить флаги"
           >
             <IconFlag className="size-4" />
@@ -136,7 +136,7 @@ export function FlagPicker({ value, onAdd }: { value: string; onAdd: (next: stri
               onClick={() => toggleFlag(emoji)}
               className={cn(
                 'flex size-8 items-center justify-center rounded-md border border-transparent text-base transition-colors active:translate-y-0',
-                selected.includes(emoji) ? 'border-[#60a5fa] bg-blue-500/25' : 'hover:border-[#60a5fa] hover:bg-blue-500/15'
+                selected.includes(emoji) ? 'border-blue-400 bg-blue-500/25' : 'hover:border-blue-400 hover:bg-blue-500/15'
               )}
             >
               {emoji}

@@ -1092,8 +1092,8 @@ fn apply_resolution(result: &mut RouteResult, resolved: Option<(&[IpAddr], DnsSo
 
 /// Синхронные проверки (`domain`/`ip`/`sourceIP`) могут дойти до `geodb`, то есть до блокирующего
 /// чтения файла — прогоняем их через `tokio::task::block_in_place`, чтобы такое чтение не держало
-/// рабочий поток tokio-рантайма замороженным (сам `geodb.rs` остаётся синхронным и без tokio-знания,
-/// т.к. его сигнатуры общие с mihomo — обёртка тут, на вызывающей стороне).
+/// рабочий поток tokio-рантайма замороженным (сам `geodb.rs` остаётся синхронным и без tokio-знания —
+/// обёртка тут, на вызывающей стороне).
 async fn evaluate_rule<R: Resolver>(
     rule: &CompiledRule, ctx: &TestContext, lazy_ips: &LazyIps<'_, R>, domain_visible: bool,
     warn: &mut (dyn FnMut(String) + Send),
@@ -1904,7 +1904,7 @@ mod tests {
 
     #[test]
     fn bare_ip_without_bits_defaults_to_full_length_prefix() {
-        // xray: `"ip": ["1.2.3.4"]` — голый IP без `/bits` разрешён, в отличие от mihomo (см.
+        // xray: `"ip": ["1.2.3.4"]` — голый IP без `/bits` разрешён (см.
         // `route_test::cidr::Cidr::parse_or_host`).
         let asset_dir = std::env::temp_dir();
         let item = parse_ip_item("1.2.3.4", &asset_dir).unwrap();

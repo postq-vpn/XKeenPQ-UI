@@ -2,7 +2,7 @@ import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import type { EditorState } from '@codemirror/state'
 import type { SyntaxNode } from '@lezer/common'
 
-/** Context resolved at the cursor, shared by the JSON and YAML resolvers. */
+/** Context resolved at the cursor by the JSON resolver. */
 export interface ResolvedContext {
   readonly kind: 'key' | 'value'
   /** Path from the schema root; array items are always `'*'`. */

@@ -6,20 +6,6 @@ const safeBase64 = (str) =>
       .padEnd(str.length + ((4 - (str.length % 4)) % 4), '=')
   )
 
-const toYaml = (obj, indent = 0) => {
-  const padding = ' '.repeat(indent)
-  return Object.entries(obj).reduce((result, [key, value]) => {
-    if (value == null || value === '') return result
-    if (Array.isArray(value))
-      return value.length ? result + `${padding}${key}:\n` + value.map((item) => `${padding}  - ${item}`).join('\n') + '\n' : result
-    if (typeof value === 'object') return result + `${padding}${key}:\n${toYaml(value, indent + 2)}`
-    return result + `${padding}${key}: ${key === 'name' ? `'${String(value).replace(/'/g, "''")}'` : value}\n`
-  }, '')
-}
-
-const randomHwid = () =>
-  Array.from(crypto.getRandomValues(new Uint8Array(6)), (n) => n.toString(16).padStart(2, '0').toUpperCase()).join('')
-
 const getStreamSettings = (type, params) => {
   const number = (val) => (val ? +val : undefined)
   const bool = (val) => val === 'true' || val === true || val === '1' || undefined
@@ -223,145 +209,6 @@ function parseProxyUri(uri) {
   return protocols[protocol](uri)
 }
 
-function convertToMihomoYaml(proxyConfig) {
-  const settings = proxyConfig.settings
-  const streamSettings = proxyConfig.streamSettings || {}
-  const protocolMap = {
-    shadowsocks: 'ss',
-    vless: 'vless',
-    vmess: 'vmess',
-    trojan: 'trojan',
-    hysteria2: 'hysteria2',
-  }
-  const common = {
-    name: proxyConfig.tag,
-    type: protocolMap[proxyConfig.protocol] || proxyConfig.protocol,
-    server: settings.address,
-    port: settings.port,
-    udp: true,
-  }
-
-  if (proxyConfig.protocol === 'vless') {
-    Object.assign(common, {
-      uuid: settings.id,
-      flow: settings.flow,
-      'packet-encoding': 'xudp',
-    })
-    if (settings.encryption) common.encryption = settings.encryption
-  } else if (proxyConfig.protocol === 'vmess')
-    Object.assign(common, {
-      uuid: settings.id,
-      alterId: settings.alterId,
-      cipher: settings.security,
-    })
-  else if (proxyConfig.protocol === 'trojan') {
-    common.password = settings.password
-  } else if (proxyConfig.protocol === 'hysteria2') {
-    common.password = settings.password
-    if (settings.sni) common.sni = settings.sni
-    if (settings.insecure) common['skip-cert-verify'] = true
-    if (settings.obfs) common.obfs = settings.obfs
-    if (settings.obfsPassword) common['obfs-password'] = settings.obfsPassword
-    if (settings.fingerprint) common['client-fingerprint'] = settings.fingerprint
-    if (settings.alpn) common.alpn = settings.alpn
-    if (settings.up) common.up = settings.up
-    if (settings.down) common.down = settings.down
-  } else if (proxyConfig.protocol === 'shadowsocks')
-    Object.assign(common, {
-      cipher: settings.method,
-      password: settings.password,
-    })
-
-  if (streamSettings.network) common.network = streamSettings.network
-  if (['tls', 'reality'].includes(streamSettings.security)) {
-    const tls = streamSettings.tlsSettings || {}
-    const reality = streamSettings.realitySettings || {}
-    const serverName = tls.serverName || reality.serverName
-    Object.assign(common, {
-      tls: true,
-      'client-fingerprint': tls.fingerprint || reality.fingerprint,
-      alpn: tls.alpn,
-    })
-    if (['trojan', 'hysteria2'].includes(proxyConfig.protocol)) {
-      if (serverName) common.sni = serverName
-    } else {
-      if (serverName) common.servername = serverName
-    }
-    if (tls.allowInsecure) common['skip-cert-verify'] = true
-    if (streamSettings.security === 'reality')
-      common['reality-opts'] = {
-        'public-key': reality.publicKey,
-        'short-id': reality.shortId,
-        'support-x25519mlkem768': true,
-      }
-  }
-
-  if (streamSettings.network === 'ws')
-    common['ws-opts'] = {
-      path: streamSettings.wsSettings?.path,
-      headers: streamSettings.wsSettings?.host ? { Host: streamSettings.wsSettings.host } : undefined,
-    }
-  else if (streamSettings.network === 'grpc' && streamSettings.grpcSettings?.serviceName)
-    common['grpc-opts'] = {
-      'grpc-service-name': streamSettings.grpcSettings.serviceName,
-    }
-  else if (streamSettings.network === 'httpupgrade')
-    common['http-upgrade-opts'] = {
-      path: streamSettings.httpupgradeSettings?.path,
-      headers: streamSettings.httpupgradeSettings?.host ? { Host: streamSettings.httpupgradeSettings.host } : undefined,
-    }
-  else if (streamSettings.network === 'xhttp') {
-    const xhttp = streamSettings.xhttpSettings || {}
-    const extra = xhttp.extra || {}
-    const mapXmux = (xmux) =>
-      xmux
-        ? {
-            'max-connections': xmux.maxConnections,
-            'max-concurrency': xmux.maxConcurrency,
-            'c-max-reuse-times': xmux.cMaxReuseTimes,
-            'h-max-request-times': xmux.hMaxRequestTimes,
-            'h-max-reusable-secs': xmux.hMaxReusableSecs,
-            'h-keep-alive-period': xmux.hKeepAlivePeriod,
-          }
-        : undefined
-
-    common['xhttp-opts'] = {
-      path: xhttp.path,
-      host: xhttp.host,
-      mode: xhttp.mode,
-      headers: extra.headers,
-      'no-grpc-header': extra.noGRPCHeader || undefined,
-      'x-padding-bytes': extra.xPaddingBytes,
-      'reuse-settings': mapXmux(extra.xmux),
-      'download-settings': extra.downloadSettings
-        ? (() => {
-            const ds = extra.downloadSettings
-            const tls = ds.tlsSettings || {}
-            const xs = ds.xhttpSettings || {}
-            return {
-              // xhttp part
-              path: xs.path,
-              host: xs.host,
-              headers: xs.headers,
-              'no-grpc-header': xs.noGRPCHeader || undefined,
-              'x-padding-bytes': xs.xPaddingBytes,
-              'reuse-settings': mapXmux(xs.xmux),
-              // proxy part
-              server: ds.address,
-              port: ds.port,
-              tls: ds.security === 'tls' || undefined,
-              alpn: tls.alpn,
-              'skip-cert-verify': tls.allowInsecure || undefined,
-              servername: tls.serverName,
-              'client-fingerprint': tls.fingerprint,
-            }
-          })()
-        : undefined,
-    }
-  }
-  return `  - ${toYaml(common).trim().replace(/\n/g, '\n    ')}`
-}
-
 const parseHysteria2Xray = (uri) => {
   const url = new URL(uri)
   const params = Object.fromEntries([...url.searchParams].map(([k, v]) => [k.toLowerCase(), v]))
@@ -390,43 +237,15 @@ const parseHysteria2Xray = (uri) => {
   }
 }
 
-function generateConfigForCore(uri, core = 'xray', existingConfig = '') {
+function generateOutbound(uri, existingConfig = '') {
   const generateName = (base) => {
     let index = 1
     while (existingConfig.includes(`${base}_${index}`)) index++
     return `${base}_${index}`
   }
 
-  if (uri.startsWith('http') && core === 'mihomo') {
-    const name = generateName('subscription')
-    return {
-      type: 'proxy-provider',
-      content: toYaml(
-        {
-          [name]: {
-            type: 'http',
-            url: uri,
-            interval: 43200,
-            'health-check': {
-              enable: true,
-              url: 'https://www.gstatic.com/generate_204',
-              interval: 300,
-              'expected-status': 204,
-            },
-            header: {
-              'User-Agent': '["ClashMeta/1.19.24; mihomo/1.19.24"]',
-              'x-hwid': `["${randomHwid()}"]`,
-            },
-            override: { udp: true },
-          },
-        },
-        2
-      ),
-    }
-  }
-
-  if (core !== 'mihomo' && uri.startsWith('http')) throw new Error('Подписки в Xray не поддерживаются')
-  if (core !== 'mihomo' && (uri.startsWith('hysteria2') || uri.startsWith('hy2'))) {
+  if (uri.startsWith('http')) throw new Error('Подписки добавляются через раздел подписок Xray')
+  if (uri.startsWith('hysteria2') || uri.startsWith('hy2')) {
     const config = parseHysteria2Xray(uri)
     if (config.tag === 'PROXY' || existingConfig.includes(config.tag)) config.tag = generateName('hysteria')
     return { type: 'outbound', content: JSON.stringify(config, null, 2) }
@@ -435,9 +254,7 @@ function generateConfigForCore(uri, core = 'xray', existingConfig = '') {
   const config = parseProxyUri(uri)
   if (config.tag === 'PROXY' || existingConfig.includes(config.tag)) config.tag = generateName(config.protocol)
 
-  return core === 'mihomo'
-    ? { type: 'proxy', content: convertToMihomoYaml(config) + '\n' }
-    : { type: 'outbound', content: JSON.stringify(config, null, 2) }
+  return { type: 'outbound', content: JSON.stringify(config, null, 2) }
 }
 
-window.generateConfigForCore = generateConfigForCore
+window.generateOutbound = generateOutbound

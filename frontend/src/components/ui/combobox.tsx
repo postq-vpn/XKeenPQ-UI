@@ -83,8 +83,8 @@ function ComboboxInput({
   children,
   disabled = false,
   fullWidth = false,
-  openBorderColor = '#60a5fa',
-  openShadowColor = 'rgba(59,130,246,0.15)',
+  openBorderColor = 'var(--color-blue-400)',
+  openShadowColor = 'color-mix(in srgb, var(--color-blue-500) 15%, transparent)',
   showTrigger = true,
   showClear = false,
   ...props
@@ -195,7 +195,7 @@ function ComboboxItem({ className, children, ...props }: ComboboxPrimitive.Item.
     <ComboboxPrimitive.Item
       data-slot="combobox-item"
       className={cn(
-        'relative flex w-full cursor-default items-center gap-2 rounded-sm py-1.25 pr-1.5 pl-8 text-sm text-[13px] outline-hidden select-none focus:bg-(--menu-active-bg) focus:font-semibold focus:text-[#60a5fa] data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-(--menu-active-bg) data-highlighted:font-semibold data-highlighted:text-[#60a5fa] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
+        'relative flex w-full cursor-default items-center gap-2 rounded-sm py-1.25 pr-1.5 pl-8 text-sm text-[13px] outline-hidden select-none focus:bg-(--menu-active-bg) focus:font-semibold focus:text-blue-400 data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-(--menu-active-bg) data-highlighted:font-semibold data-highlighted:text-blue-400 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
         className
       )}
       {...props}

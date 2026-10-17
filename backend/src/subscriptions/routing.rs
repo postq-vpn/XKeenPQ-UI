@@ -12,6 +12,8 @@ use std::collections::HashSet;
 
 /// Outbounds пользователя, правила на которые не переводятся на подписку.
 const KEEP_PROTOCOLS: [&str; 5] = ["freedom", "blackhole", "dns", "loopback", "wireguard"];
+/// Стандартные теги XKeen: правила на них не переводятся на подписку, даже если outbound не найден.
+const KEEP_TAGS: [&str; 2] = ["direct", "block"];
 
 /// Убирает `//` и `/* */` комментарии вне строк (конфиги Xray их допускают, serde_json — нет).
 pub fn strip_jsonc(src: &str) -> String {
@@ -131,7 +133,7 @@ fn proxy_rule_tags(configs: &[(&Value, bool)], target: &str) -> HashSet<String> 
         .filter_map(|(c, _)| c.pointer("/routing/rules")?.as_array())
         .flatten()
         .filter_map(|rule| rule.get("outboundTag")?.as_str())
-        .filter(|tag| *tag != target)
+        .filter(|tag| *tag != target && !KEEP_TAGS.contains(tag))
         .filter(|tag| match outbounds.get(tag) {
             None => true,             // тега больше нет
             Some((_, true)) => false, // существующий сервер подписки — выбор пользователя
@@ -153,6 +155,82 @@ fn replace_rule_tags(text: &str, tags: &HashSet<String>, target: &str) -> String
             .into_owned();
     }
     out
+}
+
+/// Routing по умолчанию: правила на тег `DEFAULT_ROUTING_TAG` направляются на подписку «Для прокси».
+const DEFAULT_ROUTING: &str = include_str!("default_routing.json");
+const DEFAULT_ROUTING_TAG: &str = "subscription_1";
+const DEFAULT_ROUTING_FILE: &str = "05_routing.json";
+
+/// Шаблон routing по умолчанию с правилами, направленными на `target`.
+pub fn default_routing(target: &str) -> String {
+    replace_rule_tags(DEFAULT_ROUTING, &HashSet::from([DEFAULT_ROUTING_TAG.to_string()]), target)
+}
+
+/// Geo-файлы, на которые ссылается шаблон (`ext:<файл>:<тег>`).
+fn default_routing_assets() -> Vec<String> {
+    let re = Regex::new(r#""ext:([^:"]+):"#).unwrap();
+    let mut files: Vec<String> = re.captures_iter(DEFAULT_ROUTING).map(|c| c[1].to_string()).collect();
+    files.sort();
+    files.dedup();
+    files
+}
+
+/// Записывает routing по умолчанию в `05_routing.json`, если ни в одном конфиге нет правил.
+/// Не трогает конфиги, если какой-то из них не разобрался: в нём могут быть правила.
+pub async fn ensure_default(target: &str) -> Result<bool, String> {
+    let files = read_conf_files().await;
+    if files.iter().any(|f| f.json.is_none()) {
+        return Ok(false);
+    }
+    let has_rules = files.iter().any(|f| {
+        f.json
+            .as_ref()
+            .and_then(|j| j.pointer("/routing/rules")?.as_array())
+            .is_some_and(|rules| !rules.is_empty())
+    });
+    if has_rules {
+        return Ok(false);
+    }
+
+    // Без geo-файлов или outbound'ов direct/block Xray не запустится с этим шаблоном.
+    let assets = std::path::Path::new(XRAY_ASSET_DIR);
+    let missing: Vec<String> = default_routing_assets()
+        .into_iter()
+        .filter(|f| !assets.join(f).exists())
+        .collect();
+    if !missing.is_empty() {
+        log(
+            "WARN",
+            format!("Маршрутизация по умолчанию не создана: нет файлов {} в {}", missing.join(", "), XRAY_ASSET_DIR),
+        );
+        return Ok(false);
+    }
+    let tags: HashSet<String> = outbound_tags(&files).into_iter().map(|(t, _)| t).collect();
+    if let Some(tag) = KEEP_TAGS.iter().find(|t| !tags.contains(**t)) {
+        log("WARN", format!("Маршрутизация по умолчанию не создана: нет outbound «{tag}»"));
+        return Ok(false);
+    }
+
+    let path = std::path::Path::new(XRAY_CONF_DIR).join(DEFAULT_ROUTING_FILE);
+    if path.exists() {
+        let backup = path.with_extension("json.bak");
+        tokio::fs::copy(&path, &backup)
+            .await
+            .map_err(|e| format!("ошибка записи {}: {}", backup.display(), e))?;
+    }
+    let tmp = path.with_extension("tmp");
+    tokio::fs::write(&tmp, default_routing(target))
+        .await
+        .map_err(|e| format!("ошибка записи {}: {}", tmp.display(), e))?;
+    tokio::fs::rename(&tmp, &path)
+        .await
+        .map_err(|e| format!("ошибка записи {}: {}", path.display(), e))?;
+    log(
+        "INFO",
+        format!("Маршрутизация: создан {} по умолчанию для подписки «{}»", path.display(), target),
+    );
+    Ok(true)
 }
 
 /// Направляет проксируемые правила на `target`. Возвращает true, если routing изменился.
@@ -203,6 +281,21 @@ pub async fn sync(target: &str) -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_routing_targets_subscription() {
+        let text = default_routing("moi_vpn");
+        assert!(!text.contains("subscription_1"));
+        let json: Value = serde_json::from_str(&text).unwrap();
+        let tags: Vec<&str> = json["routing"]["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["outboundTag"].as_str().unwrap())
+            .collect();
+        assert_eq!(tags, ["block", "direct", "direct", "moi_vpn", "moi_vpn", "direct"]);
+        assert_eq!(default_routing_assets(), ["geosite_v2fly.dat", "zkeen.dat", "zkeenip.dat"]);
+    }
 
     #[test]
     fn strips_comments_outside_strings() {

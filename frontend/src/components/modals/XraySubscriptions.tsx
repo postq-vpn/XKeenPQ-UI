@@ -40,7 +40,8 @@ import { apiCall } from '../../lib/api'
 import { useAppActions } from '../../lib/store'
 import type { ProxySubscriptionInfo, XraySubscription, XraySubscriptionServer } from '../../lib/types'
 import { FlagPicker } from './FlagPicker'
-import { ActionButton, formatDateTime, formatRelativeTime, formatTraffic, LoadingTable, ProviderBadge } from './Providers'
+import { filterHiddenServers, HiddenServersToggle, useShowHiddenServers } from './HiddenServers'
+import { ActionButton, formatDateTime, formatRelativeTime, formatTraffic, LoadingTable, ProviderBadge } from './SubscriptionTableParts'
 
 /** Подписка всегда запрашивается с этим User-Agent (backend: subscriptions::USER_AGENT). */
 export const XRAY_USER_AGENT = 'Netcraze'
@@ -69,6 +70,14 @@ interface PreviewResult {
   skipped: string[]
   userinfo: XraySubscription['userinfo']
 }
+
+interface PreviewResponse extends PreviewResult {
+  title?: string | null
+  suggested_tag?: string
+}
+
+/** Название подписки для показа: от провайдера, иначе тег. */
+export const subscriptionTitle = (sub: XraySubscription) => sub.title?.trim() || sub.tag
 
 export function randomHwid(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(6)), (n) => n.toString(16).padStart(2, '0').toUpperCase()).join('')
@@ -149,7 +158,7 @@ interface EditorProps {
 }
 
 /**
- * Форма подписки Xray в стиле формы proxy-provider у Mihomo (AddOutbound.tsx).
+ * Форма подписки Xray (AddOutbound.tsx).
  * Рендерит содержимое карточки: табы, поля и нижнюю панель; рамку задаёт родитель.
  */
 export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 'form' }: EditorProps) {
@@ -161,11 +170,14 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
   const [preview, setPreview] = useState<PreviewResult | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [busy, setBusy] = useState<'preview' | 'save' | null>(null)
+  // Тег новой подписки берём из её названия, пока пользователь не правил его вручную.
+  const [tagTouched, setTagTouched] = useState(isEdit)
 
-  // Фильтры выключенного блока не отправляем, но сохраняем введённое, как у Mihomo.
+  // Фильтры выключенного блока не отправляем, но сохраняем введённое.
   const payload = useMemo(() => (filterEnable ? form : { ...form, filter: '', exclude_filter: '', exclude_type: '' }), [form, filterEnable])
 
   function update<K extends keyof XraySubscription>(key: K, value: XraySubscription[K]) {
+    if (key === 'tag') setTagTouched(true)
     setForm((prev) => {
       const next = { ...prev, [key]: value }
       // Теги серверов начинаются с названия подписки: переименовали — переносим отключения.
@@ -188,6 +200,9 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
   }
 
   const isServerEnabled = (tag: string) => !form.disabled_servers.includes(tag)
+  const [showHidden, setShowHidden] = useShowHiddenServers()
+  const previewName = (tag: string) => (tag.startsWith(`${form.tag}--`) ? tag.slice(form.tag.length + 2) : tag)
+  const previewList = filterHiddenServers(preview?.servers ?? [], (s) => previewName(s.tag), showHidden)
   const enabledCount = preview?.servers.filter((s) => isServerEnabled(s.tag)).length ?? 0
 
   // «--» отделяет имя сервера в теге, в названии подписки его быть не должно.
@@ -196,7 +211,8 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
   const canSave = canSubmit && (!preview || enabledCount > 0)
 
   useEffect(() => {
-    if (initialTab === 'servers') void runPreview()
+    // Новая подписка: сразу загружаем её, чтобы подставить название и тег.
+    if (initialTab === 'servers' || !isEdit) void runPreview()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -205,8 +221,22 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
     setBusy('preview')
     setPreviewError(null)
     try {
-      const res = await apiCall<ApiResult & Partial<PreviewResult>>('POST', 'subscriptions/preview', payload)
+      const autoTag = !tagTouched
+      const res = await apiCall<ApiResult & Partial<PreviewResponse>>('POST', 'subscriptions/preview', { ...payload, auto_tag: autoTag })
       if (!res.success) throw new Error(res.error)
+      const suggested = autoTag ? res.suggested_tag : undefined
+      setForm((prev) => ({
+        ...prev,
+        title: res.title ?? prev.title,
+        ...(suggested && suggested !== prev.tag
+          ? {
+              tag: suggested,
+              disabled_servers: prev.disabled_servers.map((t) =>
+                t.startsWith(`${prev.tag}--`) ? `${suggested}--${t.slice(prev.tag.length + 2)}` : t
+              ),
+            }
+          : {}),
+      }))
       setPreview({ servers: res.servers ?? [], skipped: res.skipped ?? [], userinfo: res.userinfo })
     } catch (e: any) {
       setPreview(null)
@@ -226,7 +256,7 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
     try {
       const res = await apiCall<ApiResult & { subscription?: XraySubscription }>(isEdit ? 'PATCH' : 'POST', 'subscriptions', payload)
       if (!res.success || !res.subscription) throw new Error(res.error)
-      showToast(`Подписка ${res.subscription.tag} ${isEdit ? 'сохранена' : 'добавлена'}: серверов ${res.subscription.servers ?? 0}`)
+      showToast(`Подписка ${subscriptionTitle(res.subscription)} ${isEdit ? 'сохранена' : 'добавлена'}: серверов ${res.subscription.servers ?? 0}`)
       if (res.restart_error) showToast(`Не удалось перезапустить Xray: ${res.restart_error}`, 'error')
       onSaved(res.subscription)
     } catch (e: any) {
@@ -272,13 +302,31 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
             <fieldset className="border-border rounded-lg border px-4 pt-1.5 pb-4">
               <legend className="px-1 text-sm font-medium">Основное</legend>
               <div className="flex flex-col gap-3 pt-1">
+                <div className="grid gap-1.5">
+                  <div className="flex items-center gap-1">
+                    <Label className="text-xs">Название</Label>
+                    <HintIcon>Берётся из подписки (заголовок profile-title), обновляется вместе с ней</HintIcon>
+                  </div>
+                  <div className="border-border bg-muted/30 flex h-8 items-center gap-2 rounded-md border px-2.5 text-xs">
+                    {form.title ? (
+                      <span className="truncate font-medium">{form.title}</span>
+                    ) : busy === 'preview' ? (
+                      <>
+                        <Spinner className="size-3.5" /> <span className="text-muted-foreground">Загружаю подписку...</span>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">Провайдер не передал название</span>
+                    )}
+                  </div>
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="grid gap-1.5">
                     <div className="flex items-center gap-1">
-                      <Label className="text-xs">Название подписки</Label>
+                      <Label className="text-xs">Тег</Label>
+                      {!isEdit && !tagTouched && <span className="text-muted-foreground text-[10px]">авто</span>}
                       <HintIcon>
-                        Латиница, цифры, «-» и «_», без «--» и не совпадающее с вашими outbound (например, direct). Серверы получат теги
-                        вида «название--сервер», в балансировщике достаточно указать само название.
+                        Подставляется из названия подписки, можно изменить. Латиница, цифры, «-» и «_», без «--» и не совпадающий с вашими
+                        outbound (например, direct). Серверы получат теги вида «тег--сервер», в балансировщике достаточно указать сам тег.
                       </HintIcon>
                     </div>
                     <Input
@@ -490,6 +538,7 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
                   Включено {enabledCount} из {preview.servers.length}
                   <HintIcon>Отключённые серверы не попадут в конфигурацию и останутся отключёнными после обновлений подписки</HintIcon>
                 </span>
+                <HiddenServersToggle count={previewList.hidden} show={showHidden} onChange={setShowHidden} />
                 <Button
                   variant="ghost"
                   size="xs"
@@ -499,7 +548,7 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
                   Включить все
                 </Button>
               </div>
-              {preview.servers.map((s) => {
+              {previewList.visible.map((s) => {
                 const enabled = isServerEnabled(s.tag)
                 const isLast = enabled && enabledCount === 1
                 return (
@@ -629,7 +678,7 @@ function ProxyBadge() {
   )
 }
 
-const serverName = (sub: XraySubscription, tag: string) => (tag.startsWith(`${sub.tag}--`) ? tag.slice(sub.tag.length + 2) : tag)
+export const serverName = (sub: XraySubscription, tag: string) => (tag.startsWith(`${sub.tag}--`) ? tag.slice(sub.tag.length + 2) : tag)
 
 /** Сервер, который сейчас работает под тегом подписки (как в backend `active_server`). */
 export function activeServerTag(sub: XraySubscription) {
@@ -649,7 +698,14 @@ export function XrayServerPicker({ sub, onDone, onSkip }: PickerProps) {
   const { results, ping } = usePing()
   const [selected, setSelected] = useState(sub.primary)
   const [saving, setSaving] = useState(false)
-  const servers = useMemo(() => (sub.server_list ?? []).filter((s) => !s.disabled), [sub])
+  const enabledServers = useMemo(() => (sub.server_list ?? []).filter((s) => !s.disabled), [sub])
+  const [showHidden, setShowHidden] = useShowHiddenServers()
+  const { visible: servers, hidden: hiddenCount } = filterHiddenServers(
+    enabledServers,
+    (s) => serverName(sub, s.tag),
+    showHidden,
+    [selected, sub.primary]
+  )
   const pinging = Object.values(results).some((r) => r.loading)
 
   async function runPing() {
@@ -686,13 +742,18 @@ export function XrayServerPicker({ sub, onDone, onSkip }: PickerProps) {
     <>
       <div className="border-border bg-muted/30 flex shrink-0 items-center justify-between gap-2 border-b px-3 py-1.5 text-xs">
         <span>Серверов: {servers.length}</span>
+        <HiddenServersToggle count={hiddenCount} show={showHidden} onChange={setShowHidden} />
         <Button variant="ghost" size="xs" disabled={pinging} onClick={() => void runPing()}>
           {pinging ? <Spinner className="size-3" /> : <IconRefresh />} Пинг
         </Button>
       </div>
 
       <div className="bg-input-background min-h-0 flex-1 overflow-auto">
-        {servers.length === 0 && <div className="text-muted-foreground p-4 text-xs">Список серверов ещё не получен</div>}
+        {servers.length === 0 && (
+          <div className="text-muted-foreground p-4 text-xs">
+            {hiddenCount > 0 ? 'Все серверы скрыты — включите «Скрытые», чтобы их показать' : 'Список серверов ещё не получен'}
+          </div>
+        )}
         <RadioGroup value={selected} onValueChange={setSelected} className="gap-0">
           {servers.map((s) => (
             <div
@@ -797,7 +858,7 @@ function serversBadge(sub: XraySubscription) {
   return sub.total_servers && sub.total_servers !== sub.servers ? `${sub.servers ?? 0}/${sub.total_servers}` : (sub.servers ?? 0)
 }
 
-/** Серверы и подписки Xray; таблица подписок — в стиле «Провайдеры прокси» у Mihomo (Providers.tsx). */
+/** Серверы и подписки Xray. */
 export function XraySubscriptionsModal({ open, onOpenChange, onChanged, onAddNew }: ModalProps) {
   const { showToast } = useAppActions()
   const [subs, setSubs] = useState<XraySubscription[]>([])
@@ -842,6 +903,7 @@ export function XraySubscriptionsModal({ open, onOpenChange, onChanged, onAddNew
   }, [open, loading, tab, ping])
 
   const needle = filter.trim().toLowerCase()
+  const [showHidden, setShowHidden] = useShowHiddenServers()
   const filteredSubs = useMemo(
     () => (needle ? subs.filter((s) => s.tag.toLowerCase().includes(needle) || s.url.toLowerCase().includes(needle)) : subs),
     [subs, needle]
@@ -849,14 +911,18 @@ export function XraySubscriptionsModal({ open, onOpenChange, onChanged, onAddNew
   const serverGroups = useMemo(
     () =>
       subs
-        .map((sub) => ({
-          sub,
-          servers: (sub.server_list ?? []).filter(
+        .map((sub) => {
+          const matched = (sub.server_list ?? []).filter(
             (s) => !needle || s.tag.toLowerCase().includes(needle) || (s.address ?? '').toLowerCase().includes(needle)
-          ),
-        }))
+          )
+          // При поиске показываем всё найденное, иначе — скрываем служебные, кроме активного.
+          const { visible, hidden } = filterHiddenServers(matched, (s) => serverName(sub, s.tag), showHidden || !!needle, [
+            activeServerTag(sub),
+          ])
+          return { sub, servers: visible, hidden }
+        })
         .filter((g) => !needle || g.servers.length > 0),
-    [subs, needle]
+    [subs, needle, showHidden]
   )
 
   const replaceSub = (next: XraySubscription) => setSubs((prev) => prev.map((s) => (s.tag === next.tag ? next : s)))
@@ -985,7 +1051,7 @@ export function XraySubscriptionsModal({ open, onOpenChange, onChanged, onAddNew
   const serversTab = (
     <div className="flex flex-col">
       {serverGroups.length === 0 && <div className="text-muted-foreground py-8 text-center text-[13px]">Нет совпадений</div>}
-      {serverGroups.map(({ sub, servers }) => {
+      {serverGroups.map(({ sub, servers, hidden }) => {
         const all = sub.server_list ?? []
         const enabledCount = all.filter((s) => !s.disabled).length
         const busy = savingServers === sub.tag
@@ -993,7 +1059,8 @@ export function XraySubscriptionsModal({ open, onOpenChange, onChanged, onAddNew
         return (
           <div key={sub.tag}>
             <div className="border-border bg-muted/30 sticky top-0 z-10 flex items-center gap-2 border-b px-4 py-1.5 text-xs backdrop-blur-sm">
-              <span className="font-medium">{sub.tag}</span>
+              <span className="font-medium">{subscriptionTitle(sub)}</span>
+              {sub.title && <span className="text-muted-foreground font-mono">{sub.tag}</span>}
               {sub.proxy && <ProxyBadge />}
               <ProviderBadge>{all.length ? `${enabledCount}/${all.length}` : serversBadge(sub)}</ProviderBadge>
               {sub.last_error && (
@@ -1004,6 +1071,7 @@ export function XraySubscriptionsModal({ open, onOpenChange, onChanged, onAddNew
               )}
               {busy && <Spinner className="size-3.5" />}
               <div className="ml-auto flex items-center gap-1">
+                <HiddenServersToggle count={hidden} show={showHidden} onChange={setShowHidden} />
                 <Button variant="ghost" size="xs" disabled={all.length === 0} onClick={() => void ping(all)}>
                   <IconRefresh /> Пинг
                 </Button>
@@ -1111,7 +1179,10 @@ export function XraySubscriptionsModal({ open, onOpenChange, onChanged, onAddNew
             <TableRow key={sub.tag}>
               <TableCell className="max-w-72">
                 <div className="flex items-center gap-2">
-                  <div className="truncate font-medium">{sub.tag}</div>
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{subscriptionTitle(sub)}</div>
+                    {sub.title && <div className="text-muted-foreground truncate font-mono text-xs">{sub.tag}</div>}
+                  </div>
                   {sub.proxy && <ProxyBadge />}
                   <ProviderBadge>{serversBadge(sub)}</ProviderBadge>
                 </div>

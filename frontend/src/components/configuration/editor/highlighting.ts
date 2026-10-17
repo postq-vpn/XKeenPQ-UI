@@ -1,57 +1,11 @@
 import { jsonLanguage } from '@codemirror/lang-json'
-import { yamlLanguage } from '@codemirror/lang-yaml'
-import { ensureSyntaxTree, HighlightStyle, indentService, LanguageSupport, syntaxTree } from '@codemirror/language'
+import { ensureSyntaxTree, HighlightStyle, LanguageSupport } from '@codemirror/language'
 import { Prec, RangeSetBuilder, type Extension } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import { tags } from '@lezer/highlight'
 import { completionThemeSpec } from './completion'
 import { searchThemeSpec } from './search/searchExtension'
 import type { EditorLanguage } from './types'
-
-const BOOL_RE = /^(true|false|True|False|TRUE|FALSE)$/
-const NULL_RE = /^(null|Null|NULL|~)$/
-const NUMBER_RE = /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$|^0x[0-9a-fA-F]+$|^0o[0-7]+$|^0b[01]+$/
-
-const boolDecoration = Decoration.mark({ attributes: { style: 'color: var(--cm-bool)' } })
-const nullDecoration = Decoration.mark({ attributes: { style: 'color: var(--cm-bool)' } })
-const numberDecoration = Decoration.mark({ attributes: { style: 'color: var(--cm-number)' } })
-
-function buildYamlDecorations(view: EditorView): DecorationSet {
-  const tree = ensureSyntaxTree(view.state, view.state.doc.length, 1000) ?? syntaxTree(view.state)
-  const builder = new RangeSetBuilder<Decoration>()
-  tree.iterate({
-    enter(node) {
-      if (node.name === 'QuotedLiteral') {
-        builder.add(node.from, node.to, Decoration.mark({ attributes: { style: 'color: var(--cm-string)' } }))
-      } else if (node.name === 'Literal') {
-        const text = view.state.doc.sliceString(node.from, node.to)
-        if (BOOL_RE.test(text)) builder.add(node.from, node.to, boolDecoration)
-        else if (NULL_RE.test(text)) builder.add(node.from, node.to, nullDecoration)
-        else if (NUMBER_RE.test(text)) builder.add(node.from, node.to, numberDecoration)
-        else builder.add(node.from, node.to, Decoration.mark({ attributes: { style: 'color: var(--cm-string)' } }))
-      }
-    },
-  })
-  return builder.finish()
-}
-
-const yamlScalarDecorator = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet
-    constructor(view: EditorView) {
-      this.decorations = buildYamlDecorations(view)
-    }
-    update(update: ViewUpdate) {
-      if (update.docChanged) this.decorations = buildYamlDecorations(update.view)
-    }
-  },
-  { decorations: (plugin) => plugin.decorations }
-)
-
-const yamlFlatIndent = indentService.of((context, pos) => {
-  const line = context.lineAt(pos, -1)
-  return line.text.match(/^(\s*)/)?.[1].length ?? 0
-})
 
 const jsoncLang = jsonLanguage.configure({ dialect: 'jsonc' })
 
@@ -96,7 +50,6 @@ const jsoncExtension = new LanguageSupport(jsoncLang, [
 ])
 
 export function getLanguageExtension(language: EditorLanguage): Extension {
-  if (language === 'yaml') return [new LanguageSupport(yamlLanguage), yamlScalarDecorator, yamlFlatIndent]
   if (language === 'json') return jsoncExtension
   return []
 }
@@ -119,25 +72,25 @@ export const editorTheme = (isMobile: boolean, isDarkTheme: boolean) =>
     {
       '&': {
         height: '100%',
-        '--cm-bg': isDarkTheme ? '#080e1d' : '#ffffff',
-        '--cm-panel-bg': isDarkTheme ? '#0f172a' : '#f8fafc',
-        '--cm-fg': isDarkTheme ? '#c0caf5' : '#0f172a',
-        '--cm-caret': isDarkTheme ? '#c0caf5' : '#0f172a',
-        '--cm-selection': isDarkTheme ? '#2d4f8e' : '#dbeafe',
-        '--cm-selection-match': isDarkTheme ? '#1e3a5f' : '#bfdbfe',
-        '--cm-gutter': isDarkTheme ? '#3b4261' : '#94a3b8',
-        '--cm-gutter-active': isDarkTheme ? '#a9b1d6' : '#475569',
-        '--cm-fold': isDarkTheme ? '#565f89' : '#64748b',
-        '--cm-fold-placeholder-bg': isDarkTheme ? '#283457' : '#eff6ff',
-        '--cm-fold-placeholder-border': isDarkTheme ? '#7aa2f7' : '#93c5fd',
-        '--cm-fold-placeholder-text': isDarkTheme ? '#7aa2f7' : '#2563eb',
-        '--cm-border': isDarkTheme ? '#334155' : '#cbd5e1',
-        '--cm-property': isDarkTheme ? '#7aa2f7' : '#2563eb',
+        '--cm-bg': isDarkTheme ? '#07030f' : '#ffffff',
+        '--cm-panel-bg': isDarkTheme ? '#0e0620' : '#f8f8f8',
+        '--cm-fg': isDarkTheme ? '#ece4f7' : '#212023',
+        '--cm-caret': isDarkTheme ? '#f0b3e6' : '#ff2181',
+        '--cm-selection': isDarkTheme ? 'rgba(207, 0, 163, 0.32)' : '#ffd6e8',
+        '--cm-selection-match': isDarkTheme ? 'rgba(207, 0, 163, 0.18)' : '#ffe9f2',
+        '--cm-gutter': isDarkTheme ? '#4a3d63' : '#a1a1aa',
+        '--cm-gutter-active': isDarkTheme ? '#d7c2f0' : '#52525b',
+        '--cm-fold': isDarkTheme ? '#6f6189' : '#77757a',
+        '--cm-fold-placeholder-bg': isDarkTheme ? 'rgba(207, 0, 163, 0.15)' : '#fff0f6',
+        '--cm-fold-placeholder-border': isDarkTheme ? '#e592d3' : '#ff94c3',
+        '--cm-fold-placeholder-text': isDarkTheme ? '#e592d3' : '#c40f60',
+        '--cm-border': isDarkTheme ? 'rgba(255, 255, 255, 0.09)' : '#ececee',
+        '--cm-property': isDarkTheme ? '#e592d3' : '#c40f60',
         '--cm-string': isDarkTheme ? '#9ece6a' : '#15803d',
         '--cm-number': isDarkTheme ? '#ff9e64' : '#ea580c',
         '--cm-bool': isDarkTheme ? '#bb9af7' : '#7c3aed',
-        '--cm-comment': isDarkTheme ? '#565f89' : '#64748b',
-        '--cm-punctuation': isDarkTheme ? '#89ddff' : '#0f766e',
+        '--cm-comment': isDarkTheme ? '#6f6189' : '#77757a',
+        '--cm-punctuation': isDarkTheme ? '#b8a6d9' : '#77757a',
         backgroundColor: 'var(--cm-bg)',
         color: 'var(--cm-fg)',
         fontSize: isMobile ? '13px' : '14px',
@@ -185,7 +138,7 @@ export const editorTheme = (isMobile: boolean, isDarkTheme: boolean) =>
       '.cm-tooltip': { backgroundColor: 'var(--cm-panel-bg)', color: 'var(--cm-fg)', border: '1px solid var(--cm-border)', zIndex: 40 },
       '.cm-tooltip-autocomplete ul li[aria-selected]': {
         backgroundColor: 'var(--menu-active-bg)',
-        color: '#60a5fa',
+        color: 'var(--color-blue-400)',
         fontWeight: '600',
       },
       ...searchThemeSpec(isDarkTheme),

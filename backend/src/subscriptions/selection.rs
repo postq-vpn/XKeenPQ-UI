@@ -63,7 +63,7 @@ pub struct PrimaryReq {
 }
 
 /// Выбирает сервер, который будет работать под тегом подписки.
-pub async fn post_primary(State(state): State<AppState>, Json(req): Json<PrimaryReq>) -> impl IntoResponse {
+pub async fn post_primary(Json(req): Json<PrimaryReq>) -> impl IntoResponse {
     let primary = req.primary.trim().to_string();
     let _guard = STORE_LOCK.lock().await;
     let mut store = load_store().await;
@@ -94,7 +94,7 @@ pub async fn post_primary(State(state): State<AppState>, Json(req): Json<Primary
             format!("Подписка «{}»: выбран сервер «{}»", updated.tag, updated.primary)
         },
     );
-    let restart_error = finish_change(&state, &mut store, changed).await;
+    let restart_error = finish_change(&mut store, changed).await;
     Json(json!({ "success": true, "subscription": to_api(&updated), "restart_error": restart_error }))
 }
 

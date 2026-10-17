@@ -14,7 +14,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono&display=block" rel="stylesheet" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/json.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/yaml.min.js"></script>
     <style>
       * {
         margin: 0;
@@ -71,38 +70,6 @@
         color: #94a3b8;
         margin-bottom: 24px;
         font-size: 14px;
-      }
-
-      .tabs {
-        display: inline-flex;
-        height: 36px;
-        border-radius: 10px;
-        background: #1e293b;
-        padding: 3px;
-        gap: 2px;
-        margin-bottom: 24px;
-      }
-
-      .tab {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 8px;
-        padding: 4px 16px;
-        font-size: 14px;
-        font-weight: 400;
-        background: transparent;
-        border: none;
-        color: #94a3b8;
-        cursor: pointer;
-        transition: all 0.15s ease;
-        position: relative;
-        font-family: "Inter", sans-serif;
-      }
-
-      .tab.active {
-        background: var(--field-backgound);
-        color: #fafafa;
       }
 
       .disclaimer {
@@ -433,14 +400,6 @@
         .container {
           padding: 24px;
         }
-
-        .tabs {
-          width: 100%;
-        }
-
-        .tab {
-          flex: 1;
-        }
       }
     </style>
   </head>
@@ -448,12 +407,7 @@
   <body>
     <div class="container">
       <h1>Outbound Generator</h1>
-      <p class="subtitle">Конвертер URI в конфигурации для Xray и Mihomo</p>
-
-      <div class="tabs">
-        <button class="tab active" data-core="xray">Xray</button>
-        <button class="tab" data-core="mihomo">Mihomo</button>
-      </div>
+      <p class="subtitle">Конвертер URI в конфигурации для Xray</p>
 
       <div class="disclaimer show" id="disclaimer">
         <svg
@@ -496,7 +450,7 @@
         </button>
       </div>
 
-      <div class="input-group" id="fullConfigGroup" style="display: none">
+      <div class="input-group" id="fullConfigGroup">
         <div>
           <input type="checkbox" id="fullConfig" />
           Полная конфигурация
@@ -543,12 +497,11 @@
 
     <script src="outboundParser.js"></script>
     <script>
-      let currentCore = "xray"
       let hasGenerated = false
       const uriInput = document.getElementById("uri")
       const clearBtn = document.getElementById("clearInput")
       const generateBtn = document.getElementById("generateBtn")
-      const SUPPORTED_PROTOCOLS = ["http://", "https://", "ss://", "trojan://", "vmess://", "vless://", "hysteria2://", "hy2://"]
+      const SUPPORTED_PROTOCOLS = ["ss://", "trojan://", "vmess://", "vless://", "hysteria2://", "hy2://"]
 
       function checkURIInput() {
         const uri = uriInput.value.trim().toLowerCase()
@@ -578,30 +531,12 @@
         checkURIInput()
       })
 
-      if (currentCore === "xray") {
-        document.getElementById("fullConfigGroup").style.display = "block"
-      }
-
       function clearInput() {
         uriInput.value = ""
         clearBtn.classList.remove("show")
         checkURIInput()
         uriInput.focus()
       }
-      function updateDisclaimer() {
-        const disclaimer = document.getElementById("disclaimer")
-        disclaimer.classList.toggle("show", currentCore === "xray")
-      }
-
-      document.querySelectorAll(".tab").forEach((tab) => {
-        tab.addEventListener("click", () => {
-          document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"))
-          tab.classList.add("active")
-          currentCore = tab.dataset.core
-          updateDisclaimer()
-          document.getElementById("fullConfigGroup").style.display = currentCore === "xray" ? "block" : "none"
-        })
-      })
 
       function generate() {
         const uri = uriInput.value.trim()
@@ -617,44 +552,24 @@
             .map((l) => l.trim())
             .filter(Boolean)
           const results = lines.map((line) => {
-            if (!line.toLowerCase().startsWith("http")) line = line.split("#")[0] + "#vless-reality"
-            const res = generateConfigForCore(line, currentCore, "")
-            return currentCore === "xray" ? JSON.parse(res.content) : res.content
+            line = line.split("#")[0] + "#vless-reality"
+            return JSON.parse(generateOutbound(line, "").content)
           })
 
-          let content, lang
-
-          if (currentCore === "xray") {
-            lang = "json"
-            if (isFull) {
-              const config = {
-                outbounds: [...results, { tag: "direct", protocol: "freedom" }, { tag: "block", protocol: "blackhole" }],
-              }
-              content = JSON.stringify(config, null, 2)
-            } else {
-              content = results.map((r) => JSON.stringify(r, null, 2)).join(",\n")
+          let content
+          if (isFull) {
+            const config = {
+              outbounds: [...results, { tag: "direct", protocol: "freedom" }, { tag: "block", protocol: "blackhole" }],
             }
+            content = JSON.stringify(config, null, 2)
           } else {
-            lang = "yaml"
-            const { proxies, providers } = results.reduce(
-              (acc, item, i) => {
-                const isProvider = lines[i].toLowerCase().startsWith("http")
-                isProvider ? acc.providers.push(item) : acc.proxies.push(item)
-                return acc
-              },
-              { proxies: [], providers: [] },
-            )
-
-            const parts = []
-            if (proxies.length) parts.push(`proxies:\n${proxies.join("\n")}`)
-            if (providers.length) parts.push(`proxy-providers:\n${providers.join("\n")}`)
-            content = parts.join("\n\n")
+            content = results.map((r) => JSON.stringify(r, null, 2)).join(",\n")
           }
 
-          resultEl.innerHTML = `<code class="language-${lang}">${hljs.highlight(content, { language: lang }).value}</code>`
+          resultEl.innerHTML = `<code class="language-json">${hljs.highlight(content, { language: "json" }).value}</code>`
           output.className = "output success show"
 
-          document.querySelector(".download-btn").classList.toggle("show", currentCore === "xray" && isFull)
+          document.querySelector(".download-btn").classList.toggle("show", isFull)
           hasGenerated = true
         } catch (e) {
           resultEl.textContent = `Ошибка: ${e.message}`

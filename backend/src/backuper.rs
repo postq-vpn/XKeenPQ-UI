@@ -1,5 +1,5 @@
 use crate::logger::log;
-use crate::types::{APP_CONFIG, ApiResponse, AppState, MIHOMO_CONF_DIR, XKEEN_CONF_DIR, XRAY_CONF_DIR};
+use crate::types::{APP_CONFIG, ApiResponse, AppState, XKEEN_CONF_DIR, XRAY_CONF_DIR};
 use axum::Json;
 use axum::extract::State;
 use axum::response::IntoResponse;
@@ -28,7 +28,7 @@ fn mtime_string(time: Result<SystemTime, std::io::Error>, tz: i32) -> String {
 
 const BACKUP_DIR: &str = "/opt/backups";
 const BACKUP_SUFFIX: &str = "xkeen-ui.tar";
-const CONTENT_ORDER: [&str; 4] = ["xkeen", "xkeen-ui", "xray", "mihomo"];
+const CONTENT_ORDER: [&str; 3] = ["xkeen", "xkeen-ui", "xray"];
 
 #[derive(Serialize)]
 struct BackupListData {
@@ -56,8 +56,6 @@ struct BackupContentFiles {
     xkeen_ui: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     xray: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    mihomo: Vec<String>,
 }
 
 impl BackupContentFiles {
@@ -66,7 +64,6 @@ impl BackupContentFiles {
             "xkeen" => self.xkeen.push(file),
             "xkeen-ui" => self.xkeen_ui.push(file),
             "xray" => self.xray.push(file),
-            "mihomo" => self.mihomo.push(file),
             _ => unreachable!("unknown backup content: {key}"),
         }
     }
@@ -75,7 +72,6 @@ impl BackupContentFiles {
         self.xkeen.sort();
         self.xkeen_ui.sort();
         self.xray.sort();
-        self.mihomo.sort();
     }
 }
 
@@ -265,7 +261,12 @@ fn restore_backup_sync(name: &str, requested_contents: Option<Vec<String>>) -> R
         let entry_path = entry.path().map_err(io_error)?;
         let relative =
             normalize_entry_path(entry_path.as_ref()).map_err(|e| format!("невалидный путь в архиве: {e}"))?;
-        let content = detect_content_key(&relative).ok_or_else(|| format!("недопустимый путь в архиве: {relative}"))?;
+        let Some(content) = detect_content_key(&relative) else {
+            if is_legacy_entry(&relative) {
+                continue;
+            }
+            return Err(format!("недопустимый путь в архиве: {relative}"));
+        };
 
         if requested_contents
             .as_ref()
@@ -343,7 +344,6 @@ fn collect_backup_files() -> io::Result<Vec<(PathBuf, String)>> {
     let mut files = Vec::new();
     files.extend(collect_dir_files(XKEEN_CONF_DIR, &["lst", "json"])?);
     files.extend(collect_dir_files(XRAY_CONF_DIR, &["json"])?);
-    files.extend(collect_dir_files(MIHOMO_CONF_DIR, &["yaml", "yml"])?);
     files.sort_by(|a, b| a.1.cmp(&b.1));
     Ok(files)
 }
@@ -438,6 +438,9 @@ fn validate_backup_entries(path: &Path) -> Result<(), String> {
         let relative =
             normalize_entry_path(entry_path.as_ref()).map_err(|e| format!("невалидный путь в архиве: {e}"))?;
         if archive_relative_to_target(&relative).is_none() {
+            if is_legacy_entry(&relative) {
+                continue;
+            }
             return Err(format!("недопустимый путь в архиве: {relative}"));
         }
         if !seen.insert(relative) {
@@ -468,6 +471,11 @@ fn normalize_entry_path(path: &Path) -> Result<String, &'static str> {
     Ok(parts.join("/"))
 }
 
+/// Файлы из бэкапов прошлых версий (конфиги Mihomo), которые больше не восстанавливаются.
+fn is_legacy_entry(relative: &str) -> bool {
+    relative.starts_with("opt/etc/mihomo/")
+}
+
 fn archive_relative_to_target(relative: &str) -> Option<PathBuf> {
     detect_content_key(relative).map(|_| PathBuf::from(format!("/{relative}")))
 }
@@ -489,9 +497,6 @@ fn detect_content_key(relative: &str) -> Option<&'static str> {
     }
     if check_prefix(XRAY_CONF_DIR, &["json"]).is_some() {
         return Some("xray");
-    }
-    if check_prefix(MIHOMO_CONF_DIR, &["yaml", "yml"]).is_some() {
-        return Some("mihomo");
     }
 
     None
@@ -566,7 +571,6 @@ fn content_label(content: &str) -> &'static str {
         "xkeen" => "XKeen",
         "xkeen-ui" => "XKeen UI",
         "xray" => "Xray",
-        "mihomo" => "Mihomo",
         _ => unreachable!("unknown backup content: {content}"),
     }
 }
@@ -575,7 +579,6 @@ fn content_file_name(key: &str, relative: &str) -> String {
     match key {
         "xkeen" => strip_content_prefix(relative, XKEEN_CONF_DIR),
         "xray" => strip_content_prefix(relative, XRAY_CONF_DIR),
-        "mihomo" => strip_content_prefix(relative, MIHOMO_CONF_DIR),
         "xkeen-ui" => Path::new(relative)
             .file_name()
             .and_then(|v| v.to_str())

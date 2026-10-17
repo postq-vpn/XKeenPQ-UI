@@ -1,20 +1,16 @@
-//! Тестер маршрутов: по домену/IP показывает, каким правилом активного ядра (mihomo/xray)
+//! Тестер маршрутов: по домену/IP показывает, каким правилом xray
 //! пойдёт трафик и в какой outbound. Разбивка по файлам — см. `tasks/route-tester-spec.md`.
 
 pub mod cidr;
 pub mod dns;
 pub mod geodb;
 pub mod idle_cache;
-pub mod mihomo;
-pub mod providers;
 pub mod xray;
 
-use crate::api_relay;
 use crate::types::{ApiResponse, AppState};
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
-use dns::Resolver;
 use futures_util::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -72,7 +68,7 @@ pub enum Target {
 
 impl Target {
     /// `"domain"` | `"ip"` — значение поля `RouteResult::kind`. Пока не вызывается: заполняется
-    /// движками mihomo/xray при реализации `evaluate`.
+    /// движком xray при реализации `evaluate`.
     #[allow(dead_code)]
     pub fn kind(&self) -> &'static str {
         match self {
@@ -164,8 +160,8 @@ fn is_valid_domain(domain: &str) -> bool {
     })
 }
 
-/// Контекст одной проверки: цель + параметры запроса, общие для mihomo и xray движков.
-/// Поля читаются в `mihomo::Engine::evaluate`/`xray::Engine::evaluate` — пока те заглушки,
+/// Контекст одной проверки: цель + параметры запроса, для xray движка.
+/// Поля читаются в `xray::Engine::evaluate` — пока те заглушки,
 /// компилятор считает поля неиспользуемыми.
 #[allow(dead_code)]
 pub struct TestContext {
@@ -211,7 +207,7 @@ pub struct SkippedRule {
     pub reason: String,
 }
 
-/// Результат проверки одной цели. Заполняется движком (`mihomo`/`xray`) целиком: `target`/`kind`
+/// Результат проверки одной цели. Заполняется движком `xray` целиком: `target`/`kind`
 /// берутся из `TestContext::target` (`Display`/`kind()`), остальное — по итогу сравнения правил.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -263,50 +259,14 @@ pub struct RouteTestMeta {
 fn assert_send_sync<T: Send + Sync>() {}
 #[allow(dead_code)]
 fn _assert_route_test_bounds() {
-    assert_send_sync::<mihomo::Engine>();
     assert_send_sync::<xray::Engine>();
     assert_send_sync::<dns::LiveResolver>();
 }
 
-/// Активное ядро, оборачивающее конкретный движок — нужно только чтобы не плодить
-/// generic-параметр на границе хендлера (движки не object-safe из-за `async fn` в трейте).
-enum ActiveEngine {
-    Mihomo(mihomo::Engine),
-    Xray(xray::Engine),
-}
-
-impl ActiveEngine {
-    async fn load(core_name: &str) -> Result<Self, String> {
-        if core_name == "mihomo" {
-            mihomo::load().await.map(ActiveEngine::Mihomo)
-        } else {
-            xray::load().await.map(ActiveEngine::Xray)
-        }
-    }
-
-    async fn evaluate<R: Resolver>(&self, ctx: &TestContext, resolver: &R) -> RouteResult {
-        match self {
-            ActiveEngine::Mihomo(e) => e.evaluate(ctx, resolver).await,
-            ActiveEngine::Xray(e) => e.evaluate(ctx, resolver).await,
-        }
-    }
-
-    fn warnings(&self) -> Vec<String> {
-        match self {
-            ActiveEngine::Mihomo(e) => e.warnings(),
-            ActiveEngine::Xray(e) => e.warnings(),
-        }
-    }
-}
-
 /// `GET /api/route-test` — активное ядро и список inbound-тегов (только для xray).
-pub async fn get_route_test_meta(State(state): State<AppState>) -> Response {
-    let core_name = state.core.read().unwrap().name.clone();
-    let inbound_tags = if core_name == "xray" {
-        xray::inbound_tags().await.unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+pub async fn get_route_test_meta() -> Response {
+    let core_name = "xray".to_string();
+    let inbound_tags = xray::inbound_tags().await.unwrap_or_default();
     Json(ApiResponse {
         success: true,
         error: None,
@@ -343,9 +303,8 @@ fn normalize_and_dedupe(raw_targets: Vec<String>) -> Vec<ParsedTarget> {
     out
 }
 
-/// Сколько целей вычисляется одновременно — не топим mihomo/файловую систему 500 параллельными
-/// запросами разом, но и не ждём их строго по очереди (mihomo A+AAAA до 2×3с, DoH-фолбэк до 4с —
-/// см. `dns.rs` — то есть до ~10с на одну цель в худшем случае).
+/// Сколько целей вычисляется одновременно — не топим файловую систему 500 параллельными
+/// запросами разом, но и не ждём их строго по очереди (DoH до 4с — см. `dns.rs`).
 const MAX_CONCURRENCY: usize = 8;
 /// Максимум на одну цель — жёсткий бэкстоп поверх таймаутов внутри `dns.rs`/geodb.
 const PER_TARGET_TIMEOUT: Duration = Duration::from_secs(10);
@@ -361,7 +320,7 @@ const TIMEOUT_MESSAGE: &str = "превышено время ожидания";
 /// на заведомо просроченные попытки). Невалидные (не прошедшие нормализацию) цели возвращают ошибку
 /// сразу, не через `eval` и не под таймаутом — там нечего вычислять.
 ///
-/// Вынесено из `post_route_test` отдельной функцией, не завязанной на `ActiveEngine`/axum, чтобы
+/// Вынесено из `post_route_test` отдельной функцией, не завязанной на движок/axum, чтобы
 /// протестировать тайминги и сохранение порядка с управляемым фейковым `eval` под
 /// `tokio::time::pause`, без реального движка/файлов конфигурации.
 async fn evaluate_targets<F, Fut>(targets: &[ParsedTarget], deadline: Instant, eval: F) -> Vec<RouteResult>
@@ -404,7 +363,7 @@ where
 
 /// `POST /api/route-test` — проверка списка целей активным ядром.
 pub async fn post_route_test(
-    State(state): State<AppState>, headers: HeaderMap, Json(req): Json<RouteTestRequest>,
+    State(state): State<AppState>, Json(req): Json<RouteTestRequest>,
 ) -> Response {
     if req.targets.is_empty() {
         return error_response(StatusCode::BAD_REQUEST, "нет целей для проверки".into());
@@ -415,19 +374,13 @@ pub async fn post_route_test(
         return error_response(StatusCode::BAD_REQUEST, "не более 500 целей".into());
     }
 
-    let port_override = api_relay::header_value(&headers, "x-clash-port");
-    let secret_override = api_relay::header_value(&headers, "x-clash-secret");
-    let unix_override = api_relay::header_value(&headers, "x-clash-unix");
-    let clash_target = api_relay::resolve_clash_target(port_override, secret_override, unix_override)
-        .await
-        .ok();
-    let resolver = dns::LiveResolver::new(clash_target, state.http_client.clone());
+    let resolver = dns::LiveResolver::new(state.http_client.clone());
     // Один резолвер на весь запрос: одинаковый домен из разных целей резолвится один раз
     // (см. `dns::CachingResolver`), а не заново на каждую цель.
     let resolver = dns::CachingResolver::new(&resolver);
 
-    let core_name = state.core.read().unwrap().name.clone();
-    let engine = match ActiveEngine::load(&core_name).await {
+    let core_name = "xray".to_string();
+    let engine = match xray::load().await {
         Ok(e) => e,
         Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, e),
     };

@@ -4,16 +4,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import {
   IconBox,
   IconCpu,
   IconMemory,
@@ -22,13 +12,12 @@ import {
   IconPlayerStopFilled,
   IconRefresh,
   IconSettings,
-  IconAlertCircle,
 } from '@tabler/icons-react'
-import { useEffect, useRef, useState } from 'react'
-import { apiCall, capitalize, clashFetch } from '../../lib/api'
-import { ensureDnsEnabled, setDnsEnabled, DEFAULT_DNS_CONFIG } from '../configuration/mihomo/DnsPanel'
-import { syncClashApiPort, getAppState, useAppContext, bumpDnsRefresh, fetchDnsStatus, useDnsStatusStore } from '../../lib/store'
+import { useEffect, useState } from 'react'
+import { apiCall, capitalize } from '../../lib/api'
+import { useAppContext } from '../../lib/store'
 import { cn } from '../../lib/utils'
+import { BrandLogo } from '../ui/postq-logo'
 
 type SystemStats = { memoryUsed: number; memoryTotal: number; cpuUsage: number }
 
@@ -41,22 +30,6 @@ function usageColorClass(percent: number) {
   if (percent >= 90) return 'text-red-500'
   if (percent >= 70) return 'text-amber-500'
   return 'text-muted-foreground'
-}
-
-async function applyAutoDns(setupFilter: boolean) {
-  const configsResult = await apiCall<{ success: boolean; configs?: { file: string; content: string }[] }>('GET', 'configs')
-  const yamlConfig = configsResult.success ? configsResult.configs?.find((c) => c.file.endsWith('/config.yaml')) : undefined
-  if (!yamlConfig) return
-  const configContent = ensureDnsEnabled(yamlConfig.content, DEFAULT_DNS_CONFIG)
-  await apiCall('POST', 'dns', { config_content: configContent, setup_filter: setupFilter })
-}
-
-async function persistDnsEnabled(enabled: boolean) {
-  const configsResult = await apiCall<{ success: boolean; configs?: { file: string; content: string }[] }>('GET', 'configs')
-  const yamlConfig = configsResult.success ? configsResult.configs?.find((c) => c.file.endsWith('/config.yaml')) : undefined
-  if (!yamlConfig) return
-  const updated = setDnsEnabled(yamlConfig.content, enabled)
-  await apiCall('PUT', 'configs', { file: yamlConfig.file, content: updated })
 }
 
 export function StatusBar({
@@ -79,21 +52,7 @@ export function StatusBar({
   const isRunning = serviceStatus === 'running'
   const isPending = serviceStatus === 'pending' || serviceStatus === 'loading'
 
-  const [dnsWarningOpen, setDnsWarningOpen] = useState(false)
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null)
-
-  useEffect(() => {
-    if (currentCore === 'mihomo') fetchDnsStatus().catch(() => {})
-  }, [currentCore])
-
-  const prevServiceStatusRef = useRef(serviceStatus)
-  useEffect(() => {
-    const prev = prevServiceStatusRef.current
-    prevServiceStatusRef.current = serviceStatus
-    if (prev === 'pending' && serviceStatus === 'running' && currentCore === 'mihomo') {
-      fetchDnsStatus().catch(() => {})
-    }
-  }, [serviceStatus, currentCore])
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -140,63 +99,14 @@ export function StatusBar({
       onRefreshStatus()
       return
     }
-    syncClashApiPort()
-    if (settings.autoDns !== 'disabled' && state.currentCore === 'mihomo') {
-      try {
-        await applyAutoDns(settings.autoDns === 'with_filter')
-        const { clashApiPort, clashApiSecret, clashApiUnix } = getAppState()
-        await clashFetch(clashApiPort ?? '', 'configs', {
-          method: 'PUT',
-          secret: clashApiSecret,
-          unix: clashApiUnix,
-          body: {},
-        })
-        bumpDnsRefresh()
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        showToast(`XKeen запущен, но авто-включение DNS не удалось: ${msg}`, 'error')
-      }
-    }
     dispatch({ type: 'SET_SERVICE_STATUS', status: 'running' })
-    syncClashApiPort(200)
     onRefreshStatus()
   }
 
   async function stopService() {
-    const cached = useDnsStatusStore.getState().status
-    const enabled = currentCore === 'mihomo' && !!cached && cached.dnsOverride && cached.dnsMihomo
-    if (enabled) {
-      setDnsWarningOpen(true)
-      return
-    }
     setPending('Остановка...')
     const result = await apiCall<any>('POST', 'control', { action: 'stop' })
     showToast(result.success ? 'XKeen остановлен' : `${result.output || result.error}`, result.success ? 'success' : 'error')
-    onRefreshStatus()
-  }
-
-  async function disableDnsAndStop() {
-    setPending('Остановка...')
-    const stopResult = await apiCall<any>('POST', 'control', { action: 'stop' })
-    showToast(
-      stopResult.success ? 'XKeen остановлен' : `${stopResult.output || stopResult.error}`,
-      stopResult.success ? 'success' : 'error'
-    )
-    if (!stopResult.success) {
-      onRefreshStatus()
-      return
-    }
-    try {
-      await persistDnsEnabled(false)
-      const result = await apiCall<{ success: boolean; error?: string }>('DELETE', 'dns', {})
-      if (result.success) {
-        showToast('Управление DNS отключено')
-      } else {
-        showToast(`Ошибка DNS: ${result.error}`, 'error')
-      }
-    } catch {
-      showToast('Ошибка отключения DNS', 'error')
-    }
     onRefreshStatus()
   }
 
@@ -205,9 +115,6 @@ export function StatusBar({
     const result = await apiCall<any>('POST', 'control', { action: 'hardRestart' })
     showToast(result.success ? 'XKeen перезапущен' : `${result.output || result.error}`, result.success ? 'success' : 'error')
     dispatch({ type: 'SET_SERVICE_STATUS', status: result.success ? 'running' : 'stopped' })
-    if (result.success) {
-      syncClashApiPort(200)
-    }
     onRefreshStatus()
   }
 
@@ -335,9 +242,7 @@ export function StatusBar({
               rel="noreferrer"
               className="rounded-md transition-opacity hover:opacity-85"
             >
-              <span className="bg-linear-to-r from-[#00D3F2] via-[#2B7FFF] to-[#155DFC] bg-clip-text text-[28px] font-semibold text-transparent">
-                XKeen UI
-              </span>
+              <BrandLogo className="text-[22px]" />
             </a>
           </div>
 
@@ -424,27 +329,6 @@ export function StatusBar({
         </div>
       </TooltipProvider>
 
-      <AlertDialog open={dnsWarningOpen} onOpenChange={setDnsWarningOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <IconAlertCircle size={18} className="text-amber-400" /> Внимание
-            </AlertDialogTitle>
-            <AlertDialogDescription>После остановки XKeen будет отключено управление DNS. Продолжить?</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setDnsWarningOpen(false)}>Отмена</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setDnsWarningOpen(false)
-                disableDnsAndStop()
-              }}
-            >
-              Продолжить
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   )
 }

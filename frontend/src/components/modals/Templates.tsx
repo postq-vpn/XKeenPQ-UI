@@ -13,6 +13,11 @@ import { cn } from '../../lib/utils'
 const TEMPLATES_URL = 'https://raw.githubusercontent.com/zxc-rv/assets/main/config_templates/templates.json'
 let templatesCache: Record<string, { name: string; url: string }[]> | null = null
 
+/** Встроенные шаблоны панели: доступны и без загрузки списка с GitHub. */
+const BUILTIN_TEMPLATES: Record<string, { name: string; url: string }[]> = {
+  xray: [{ name: 'Routing по умолчанию (на подписку)', url: '/api/subscriptions/default-routing' }],
+}
+
 export function TemplateModal({ onImport }: { onImport: (url: string) => Promise<void> }) {
   const { state, showToast } = useAppContext()
   const { modals, dispatch } = useModalContext()
@@ -38,12 +43,10 @@ export function TemplateModal({ onImport }: { onImport: (url: string) => Promise
         templatesCache = await res.json()
       } catch {
         showToast('Не удалось загрузить шаблоны', 'error')
-        setLoading(false)
-        return
       }
       setLoading(false)
     }
-    const list = templatesCache?.[currentCore] ?? []
+    const list = [...(BUILTIN_TEMPLATES[currentCore] ?? []), ...(templatesCache?.[currentCore] ?? [])]
     setTemplates(list)
     if (list.length > 0) setSelectedUrl(list[0].url)
   }
@@ -95,8 +98,8 @@ export function TemplateModal({ onImport }: { onImport: (url: string) => Promise
                   className={cn(
                     'flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-3.5 transition-all',
                     selectedUrl === template.url
-                      ? 'border-[#60a5fa] bg-linear-to-b from-blue-500/25 to-blue-500/15'
-                      : 'border-ring/40 bg-[linear-gradient(135deg,rgba(59,130,246,0.05)_0%,transparent_50%)] from-blue-500/15 to-blue-500/5 hover:border-[#60a5fa] hover:bg-linear-to-b'
+                      ? 'border-blue-400 bg-linear-to-b from-blue-500/25 to-blue-500/15'
+                      : 'border-ring/40 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--color-blue-500)_5%,transparent)_0%,transparent_50%)] from-blue-500/15 to-blue-500/5 hover:border-blue-400 hover:bg-linear-to-b'
                   )}
                 >
                   <RadioGroupItem value={template.url} id={`tpl-${i}`} className="shrink-0" />

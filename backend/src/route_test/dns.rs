@@ -1,126 +1,49 @@
-//! Резолвинг домена для тестера маршрутов: mihomo `GET /dns/query` через `ClashTarget`,
-//! фолбэк — DoH (`geo::resolve_domain`). Таймаут — 3 с на попытку к mihomo, до 4 с суммарно на
-//! DoH-фолбэк (`geo::resolve_domain` сам может идти до 20 с — 2 провайдера × 2 типа записи × 5 с —
+//! Резолвинг домена для тестера маршрутов через DoH (`geo::resolve_domain`) с таймаутом 4 с
+//! (`geo::resolve_domain` сама может идти до 20 с — 2 провайдера × 2 типа записи × 5 с —
 //! это нормально для `/api/geo`, где это единственный запрос, но недопустимо на цель тестера
-//! маршрутов, где таких резолвов может быть до 500; функция `geo.rs` не трогаем, обрезаем таймаутом
+//! маршрутов, где таких резолвов может быть до 500; функцию `geo.rs` не трогаем, обрезаем таймаутом
 //! только здесь). `CachingResolver` — обёртка с кэшем на весь HTTP-запрос `/api/route-test`, чтобы
 //! один и тот же домен из разных целей резолвился один раз (см. `route_test::mod::post_route_test`).
 
-use crate::api_relay::{self, ClashTarget};
 use crate::geo;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Mutex;
 use std::time::Duration;
 
-const RESOLVE_TIMEOUT: Duration = Duration::from_secs(3);
 const DOH_FALLBACK_TIMEOUT: Duration = Duration::from_secs(4);
 
 /// Источник резолва, попадает в `RouteResult::dns_source`.
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DnsSource {
-    Mihomo,
     Doh,
 }
 
 /// Резолвер домена в набор IP. `async fn` в трейте — используется только через generic-параметр
 /// (`fn evaluate<R: Resolver>`), никогда как `dyn Resolver`. Супертрейты `Send + Sync` нужны, чтобы
-/// рекурсивный вычислитель правил (`mihomo::eval_predicate`) мог боксировать future как `Send` —
-/// иначе axum-хендлер `post_route_test` не соберётся (см. `route_test::mod::_assert_route_test_bounds`).
-/// Через `<R: Resolver>` эти супертрейты автоматически доступны везде, включая заморож`ённый
-/// `ActiveEngine::evaluate<R: Resolver>` в `mod.rs` — его не нужно трогать. Возвращаем
-/// `impl Future + Send` явно (а не `async fn` в трейте), т.к. супертрейты трейта сами по себе на
-/// возвращаемый `impl Future` метода не переносятся.
+/// axum-хендлер `post_route_test` собирался (см. `route_test::mod::_assert_route_test_bounds`).
+/// Возвращаем `impl Future + Send` явно (а не `async fn` в трейте), т.к. супертрейты трейта сами
+/// по себе на возвращаемый `impl Future` метода не переносятся.
 pub trait Resolver: Send + Sync {
     fn resolve(
         &self, domain: &str,
     ) -> impl std::future::Future<Output = Result<(Vec<IpAddr>, DnsSource), String>> + Send;
 }
 
-/// Боевой резолвер: mihomo REST API (если ядро mihomo и передан `ClashTarget`), иначе DoH.
+/// Боевой резолвер: DoH.
 pub struct LiveResolver {
-    clash: Option<ClashTarget>,
     http: reqwest::Client,
 }
 
 impl LiveResolver {
-    pub fn new(clash: Option<ClashTarget>, http: reqwest::Client) -> Self {
-        Self { clash, http }
-    }
-
-    /// Тип 1 (A); AAAA (28) пробуем только если A не вернул ни одной записи — как у mihomo
-    /// (`resolver.ResolveIP` предпочитает IPv4).
-    async fn query_mihomo(&self, target: &ClashTarget, domain: &str) -> Result<Vec<IpAddr>, String> {
-        let ips = Self::query_mihomo_type(target, &self.http, domain, "A", 1).await?;
-        if !ips.is_empty() {
-            return Ok(ips);
-        }
-        Self::query_mihomo_type(target, &self.http, domain, "AAAA", 28).await
-    }
-
-    async fn query_mihomo_type(
-        target: &ClashTarget, default_client: &reqwest::Client, domain: &str, qtype: &str, rtype_code: i32,
-    ) -> Result<Vec<IpAddr>, String> {
-        #[derive(serde::Deserialize)]
-        struct DnsQueryResponse {
-            #[serde(rename = "Answer")]
-            answer: Option<Vec<DnsAnswer>>,
-        }
-        #[derive(serde::Deserialize)]
-        struct DnsAnswer {
-            #[serde(rename = "type")]
-            rtype: i32,
-            data: String,
-        }
-
-        let path = format!("dns/query?name={}&type={}", urlencoding::encode(domain), qtype);
-
-        let (url, client, secret): (String, reqwest::Client, Option<String>) = match target {
-            ClashTarget::Tcp { host, port, secret } => (
-                api_relay::build_url("http", host, port, &path, None),
-                default_client.clone(),
-                secret.clone(),
-            ),
-            ClashTarget::Unix { path: socket_path } => {
-                let url = api_relay::build_url("http", "127.0.0.1", "80", &path, None);
-                let client = reqwest::Client::builder()
-                    .unix_socket(socket_path.clone())
-                    .user_agent("XKeen-UI")
-                    .timeout(RESOLVE_TIMEOUT)
-                    .build()
-                    .map_err(|e| e.to_string())?;
-                (url, client, None)
-            }
-        };
-
-        let mut req = client.get(&url).timeout(RESOLVE_TIMEOUT);
-        if let Some(secret) = secret {
-            req = req.header("Authorization", format!("Bearer {secret}"));
-        }
-        let resp = req.send().await.map_err(|e| e.to_string())?;
-        if !resp.status().is_success() {
-            return Err(format!("mihomo DNS ответил {}", resp.status()));
-        }
-        let parsed: DnsQueryResponse = resp.json().await.map_err(|e| e.to_string())?;
-        Ok(parsed
-            .answer
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|a| a.rtype == rtype_code)
-            .filter_map(|a| a.data.parse::<IpAddr>().ok())
-            .collect())
+    pub fn new(http: reqwest::Client) -> Self {
+        Self { http }
     }
 }
 
 impl Resolver for LiveResolver {
     async fn resolve(&self, domain: &str) -> Result<(Vec<IpAddr>, DnsSource), String> {
-        if let Some(target) = &self.clash
-            && let Ok(ips) = self.query_mihomo(target, domain).await
-            && !ips.is_empty()
-        {
-            return Ok((ips, DnsSource::Mihomo));
-        }
         // `geo::resolve_domain` сама по себе не ограничена по времени так жёстко, как нужно тестеру
         // маршрутов (см. doc-комментарий модуля) — обрезаем её здесь, не трогая саму функцию.
         let ip = match tokio::time::timeout(DOH_FALLBACK_TIMEOUT, geo::resolve_domain(&self.http, domain)).await {
@@ -164,7 +87,7 @@ impl<'a, R: Resolver> Resolver for CachingResolver<'a, R> {
     }
 }
 
-/// Резолвер на фикстуре, для юнит-тестов mihomo/xray движков.
+/// Резолвер на фикстуре, для юнит-тестов xray движка.
 #[cfg(test)]
 pub struct StaticResolver(pub std::collections::HashMap<String, Vec<IpAddr>>);
 
