@@ -3,6 +3,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { LoginForm } from './components/auth/Login'
 import type { CodeMirrorRef } from './components/configuration/CodeMirror'
 import { ConfigPanel } from './components/configuration/ConfigPanel'
+
 import { LogPanel } from './components/log/LogPanel'
 import { ImportModal } from './components/modals/AddOutbound'
 import { CommentsWarningModal } from './components/modals/CommentsWarning'
@@ -12,11 +13,14 @@ import { RouteTesterModal } from './components/modals/RouteTester'
 import { SettingsModal } from './components/modals/Settings'
 import { TemplateModal } from './components/modals/Templates'
 import { UpdateModal } from './components/modals/Update'
-import { XrayServerDialog } from './components/modals/XraySubscriptions'
+import { XrayServerDialog, XraySubscriptionsModal } from './components/modals/XraySubscriptions'
 import { StatusBar } from './components/status/StatusBar'
 import { Toast } from './components/ui/toast'
 import { apiCall } from './lib/api'
 import { useLazyMount } from './lib/loader'
+import { cn } from './lib/utils'
+import { TechFilesMenu } from './components/configuration/TechFilesMenu'
+
 import { ONLINE_PING_INTERVAL_MS, LOCAL_ROUTER_ID, routerId } from './lib/multi-routers/model'
 import { applyRoutersFromSettings, refreshAllOnline } from './lib/multi-routers/actions'
 import { useRoutersStore } from './lib/multi-routers/store'
@@ -44,6 +48,7 @@ interface ModalManagerProps {
   onAddToConfig: (content: string, position: 'start' | 'end') => void
   onImportTemplate: (url: string) => Promise<void>
   onSubscriptionSaved: () => void
+  welcome: boolean
   openModal: (modal: string) => void
 }
 
@@ -53,6 +58,7 @@ const ModalManager = memo(function ModalManager({
   onAddToConfig,
   onImportTemplate,
   onSubscriptionSaved,
+  welcome,
   openModal,
 }: ModalManagerProps) {
   const { modals, dispatch } = useModalContext()
@@ -92,6 +98,7 @@ const ModalManager = memo(function ModalManager({
           onGenerate={onGenerate}
           onAddToConfig={onAddToConfig}
           onSubscriptionSaved={handleSubscriptionSaved}
+          welcome={welcome}
         />
       )}
       <XrayServerDialog
@@ -260,6 +267,53 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
 
   const refreshConfigsSilently = useCallback(() => loadConfigs(true), [loadConfigs])
 
+  // Главный блок: «Подписка и серверы» или редактор файла, выбранного в меню «Технические файлы».
+  const [view, setViewState] = useState<'servers' | 'files'>(() => {
+    try {
+      return localStorage.getItem('ui:view') === 'files' ? 'files' : 'servers'
+    } catch {
+      return 'servers'
+    }
+  })
+  const setView = useCallback((next: 'servers' | 'files') => {
+    setViewState(next)
+    try {
+      localStorage.setItem('ui:view', next)
+    } catch {
+      /* без хранилища выбор живёт до перезагрузки */
+    }
+  }, [])
+  const [activeFile, setActiveFile] = useState<string | null>(null)
+  const openFile = useCallback(
+    (file: string) => {
+      setView('files')
+      const index = getAppState().configs.findIndex((c) => c.file === file)
+      if (index >= 0) configActionsRef.current.switchTab(index)
+    },
+    [setView]
+  )
+  const techMenu = (
+    <TechFilesMenu activeFile={view === 'files' ? activeFile : null} onSelectServers={() => setView('servers')} onSelectFile={openFile} />
+  )
+  const [subsReloadKey, setSubsReloadKey] = useState(0)
+  const [welcome, setWelcome] = useState(false)
+  const onSubscriptionSaved = useCallback(() => {
+    setWelcome(false)
+    setSubsReloadKey((k) => k + 1)
+    void refreshConfigsSilently()
+  }, [refreshConfigsSilently])
+
+  // Первый вход без подписок — сразу предлагаем добавить подписку.
+  useEffect(() => {
+    apiCall<{ success: boolean; subscriptions?: unknown[] }>('GET', 'subscriptions')
+      .then((res) => {
+        if (!res.success || (res.subscriptions?.length ?? 0) > 0) return
+        setWelcome(true)
+        setTimeout(() => dispatch({ type: 'SHOW_MODAL', modal: 'showImportModal', show: true }), 300)
+      })
+      .catch(() => {})
+  }, [dispatch])
+
   const generateConfig = useCallback((uri: string) => {
     const existingConfig = editorRef.current?.getValue() ?? ''
     if (typeof (window as any).generateOutbound === 'function') return (window as any).generateOutbound(uri, existingConfig)
@@ -337,6 +391,21 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     [showToast]
   )
 
+  const addToConfigVisible = useCallback(
+    (content: string, position: 'start' | 'end') => {
+      setView('files')
+      addToConfig(content, position)
+    },
+    [addToConfig, setView]
+  )
+  const importTemplateVisible = useCallback(
+    async (url: string) => {
+      setView('files')
+      await importTemplate(url)
+    },
+    [importTemplate, setView]
+  )
+
   const logout = onLogout
   const onInstalled = useCallback(() => void checkVersion(), [checkVersion])
   const openModal = useCallback(
@@ -358,16 +427,31 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
             }}
             onLogout={logout}
           />
-          <ConfigPanel
-            editorRef={editorRef}
-            configActionsRef={configActionsRef}
-            onOpenImport={() => openModal('showImportModal')}
-            onOpenTemplate={() => openModal('showTemplateModal')}
-            onOpenGeoScan={() => openModal('showGeoScanModal')}
-            onOpenRouteTest={() => openModal('showRouteTestModal')}
-            onOpenBackups={() => openModal('showBackupsModal')}
-            onRefreshConfigs={refreshConfigsSilently}
-          />
+          <div className={cn(view !== 'servers' && 'hidden')}>
+            <XraySubscriptionsModal
+              asPage
+              open
+              onOpenChange={() => {}}
+              reloadKey={subsReloadKey}
+              onChanged={() => void refreshConfigsSilently()}
+              onAddNew={() => openModal('showImportModal')}
+              headerExtra={techMenu}
+            />
+          </div>
+          <div className={cn('flex flex-col md:min-h-[70dvh]', view !== 'files' && 'hidden')}>
+            <ConfigPanel
+              editorRef={editorRef}
+              configActionsRef={configActionsRef}
+              onOpenImport={() => openModal('showImportModal')}
+              onOpenTemplate={() => openModal('showTemplateModal')}
+              onOpenGeoScan={() => openModal('showGeoScanModal')}
+              onOpenRouteTest={() => openModal('showRouteTestModal')}
+              onOpenBackups={() => openModal('showBackupsModal')}
+              onRefreshConfigs={refreshConfigsSilently}
+              headerExtra={techMenu}
+              onActiveFileChange={setActiveFile}
+            />
+          </div>
           <LogPanel />
         </div>
       </main>
@@ -375,9 +459,10 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
       <ModalManager
         onInstalled={onInstalled}
         onGenerate={generateConfig}
-        onAddToConfig={addToConfig}
-        onImportTemplate={importTemplate}
-        onSubscriptionSaved={refreshConfigsSilently}
+        onAddToConfig={addToConfigVisible}
+        onImportTemplate={importTemplateVisible}
+        onSubscriptionSaved={onSubscriptionSaved}
+        welcome={welcome}
         openModal={openModal}
       />
     </div>

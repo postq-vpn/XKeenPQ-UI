@@ -50,8 +50,6 @@ import { cn } from '../../lib/utils'
 import { parse as parseJsonc } from 'jsonc-parser'
 import { MassConfirmDialog } from '../log/multi-routers/MassConfirmDialog'
 import { BackupsModal } from '../modals/Backups'
-import { SubscriptionsButton } from '../modals/SubscriptionsButton'
-import { XraySubscriptionsModal } from '../modals/XraySubscriptions'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '../ui/context-menu'
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '../ui/input-group'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
@@ -74,10 +72,10 @@ const BackupsModalContainer = memo(function BackupsModalContainer({ onRefreshCon
 
 type ApiResult = { success: boolean; error?: string }
 
-const isXkeenFile = (file: string) => file.startsWith('/opt/etc/xkeen')
+export const isXkeenFile = (file: string) => file.startsWith('/opt/etc/xkeen')
 
 /** Подпись вкладки: имя файла без расширения и номера-префикса, файлы подписок — «sub: <тег>». */
-const tabLabel = (file: string) =>
+export const tabLabel = (file: string) =>
   (file.split('/').pop() ?? file)
     .replace(/\.[^.]+$/, '')
     .replace(/^\d+_outbounds_sub\./, 'sub: ')
@@ -92,6 +90,10 @@ interface Props {
   onRefreshConfigs: () => Promise<Config[]>
   editorRef: React.RefObject<CodeMirrorRef | null>
   configActionsRef: React.RefObject<{ switchTab: (index: number) => void; getActiveIndex: () => number }>
+  /** Справа в заголовке (меню «Технические файлы»). */
+  headerExtra?: React.ReactNode
+  /** Сообщает родителю открытый файл — для подписи меню. */
+  onActiveFileChange?: (file: string) => void
 }
 
 interface ConfigTabProps {
@@ -280,6 +282,8 @@ export function ConfigPanel({
   onRefreshConfigs,
   editorRef,
   configActionsRef,
+  headerExtra,
+  onActiveFileChange,
 }: Props) {
   const { state, dispatch, showToast } = useAppContext({ includeConfigs: true })
   const { configs, isConfigsLoading, serviceStatus } = state
@@ -305,8 +309,6 @@ export function ConfigPanel({
 
   const [isEditorMounted, setIsEditorMounted] = useState(false)
 
-  const [isXraySubsOpen, setIsXraySubsOpen] = useState(false)
-  const mountXraySubs = useLazyMount(isXraySubsOpen)
   const [massConfirm, setMassConfirm] = useState<{
     title: string
     description: string
@@ -355,6 +357,10 @@ export function ConfigPanel({
   const configFilenamesKey = configs.map((c) => c.file).join(',')
 
   const activeConfig = configs[activeConfigIndex]
+  const activeFile = activeConfig?.file
+  useEffect(() => {
+    if (activeFile) onActiveFileChange?.(activeFile)
+  }, [activeFile, onActiveFileChange])
   const fileLanguage = activeConfig ? getFileLanguage(activeConfig.file) : null
   const isJson = fileLanguage === 'json'
   const canSave = !!(activeConfig?.isDirty && validationState?.isValid)
@@ -541,9 +547,7 @@ export function ConfigPanel({
 
   function restartActionFor(cfg: Config, content: string) {
     const lang = getFileLanguage(cfg.file)
-    return !isXkeenFile(cfg.file) && lang === 'json' && !hasCriticalChanges(cfg.savedContent, content)
-      ? 'softRestart'
-      : 'hardRestart'
+    return !isXkeenFile(cfg.file) && lang === 'json' && !hasCriticalChanges(cfg.savedContent, content) ? 'softRestart' : 'hardRestart'
   }
 
   async function applyToHost(baseUrl: string | null, cfg: Config, content: string) {
@@ -701,9 +705,6 @@ export function ConfigPanel({
 
   const isAnyGui = isRoutingGui || isLogGui
 
-  const coreConfigs = configs.filter((c) => !isXkeenFile(c.file))
-  const xkeenConfigs = configs.filter((c) => isXkeenFile(c.file))
-
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
   const usefulLinks = [
     { title: 'Инструкция XKeen', url: 'https://github.com/Corvus-Malus/XKeen/' },
@@ -716,57 +717,28 @@ export function ConfigPanel({
       <>
         <div className="border-border bg-card flex flex-col overflow-hidden rounded-xl border md:min-h-0 md:flex-1">
           <div className="flex shrink-0 flex-col gap-2 px-3 pt-3 sm:px-4 sm:pt-4">
-            <h2 className="text-lg font-semibold select-none">Конфигурация</h2>
             <div className="flex flex-wrap items-center gap-2">
-              <SubscriptionsButton
-                refreshKey={`${isXraySubsOpen}|${configFilenamesKey}`}
-                onOpen={() => setIsXraySubsOpen(true)}
-                onAdd={onOpenImport}
-              />
-              <div className="ml-auto max-w-full min-w-0">
-                {isConfigsLoading ? (
-                  <div className="flex gap-2">
-                    {[525, 310].map((w) => (
-                      <Skeleton key={w} className="h-9 gap-0.5 rounded-lg p-0.75" style={{ width: w }} />
-                    ))}
-                  </div>
-                ) : (
-                  <Tabs
-                    value={activeConfig?.file || ''}
-                    onValueChange={(value) => {
-                      const index = configs.findIndex((c) => c.file === value)
-                      if (index >= 0) switchTab(index)
-                    }}
-                    className="flex-row! flex-wrap justify-end gap-2"
-                  >
-                    {coreConfigs.length > 0 && (
-                      <TabsList className="h-auto max-w-full flex-wrap">
-                        {coreConfigs.map((config) => (
-                          <ConfigTab
-                            key={config.file}
-                            config={config}
-                            showToast={showToast}
-                            onRefreshConfigs={refreshConfigsAndEditor}
-                            withContextMenu
-                          />
-                        ))}
-                      </TabsList>
-                    )}
-                    {xkeenConfigs.length > 0 && (
-                      <TabsList className="h-auto max-w-full flex-wrap">
-                        {xkeenConfigs.map((config) => (
-                          <ConfigTab
-                            key={config.file}
-                            config={config}
-                            showToast={showToast}
-                            onRefreshConfigs={refreshConfigsAndEditor}
-                          />
-                        ))}
-                      </TabsList>
-                    )}
+              {isConfigsLoading ? (
+                <Skeleton className="h-9 w-48 rounded-lg" />
+              ) : (
+                activeConfig && (
+                  <Tabs value={activeConfig.file} className="min-w-0 flex-row!">
+                    <TabsList className="shrink-0">
+                      <ConfigTab
+                        key={activeConfig.file}
+                        config={activeConfig}
+                        showToast={showToast}
+                        onRefreshConfigs={refreshConfigsAndEditor}
+                        withContextMenu={!isXkeenFile(activeConfig.file)}
+                      />
+                    </TabsList>
                   </Tabs>
-                )}
-              </div>
+                )
+              )}
+              {activeConfig && (
+                <span className="text-muted-foreground hidden min-w-0 truncate font-mono text-xs sm:inline">{activeConfig.file}</span>
+              )}
+              <div className="ml-auto flex items-center gap-2">{headerExtra}</div>
             </div>
           </div>
 
@@ -779,9 +751,7 @@ export function ConfigPanel({
             )}
 
             {!isConfigsLoading && (
-              <div
-                className={cn('absolute inset-0', isAnyGui && 'pointer-events-none invisible opacity-0')}
-              >
+              <div className={cn('absolute inset-0', isAnyGui && 'pointer-events-none invisible opacity-0')}>
                 <CodeMirrorEditorLazy
                   ref={editorRef}
                   onContentChange={handleContentChange}
@@ -793,147 +763,131 @@ export function ConfigPanel({
             )}
           </div>
 
-            <div className="flex shrink-0 flex-wrap items-center justify-between gap-1.5 px-3 pb-3 sm:px-4 sm:pb-4">
-              <div className="min-w-0 text-xs">
-                {isConfigsLoading ? (
-                  <Skeleton className="h-4 w-30" />
-                ) : validationState && activeConfig && isJson ? (
-                  <span
-                    className={cn(
-                      'flex items-center gap-1.5 text-[13px] tracking-wide',
-                      validationState.isValid ? 'text-green-400/90' : 'text-red-500'
-                    )}
-                  >
-                    {validationState.isValid ? <IconCheck size={15} /> : <IconX size={15} />}
-                    {validationState.isValid
-                      ? `${fileLanguage?.toUpperCase()} валиден`
-                      : `Ошибка: ${validationState.error || 'Файл невалиден'}`}
-                  </span>
-                ) : null}
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {isConfigsLoading ? (
-                  <div className="flex gap-1.5">
-                    {[120, 117, 96, 100].map((w) => (
-                      <Skeleton key={w} className="h-9" style={{ width: w }} />
-                    ))}
-                  </div>
-                ) : (
-                  <>
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-1.5 px-3 pb-3 sm:px-4 sm:pb-4">
+            <div className="min-w-0 text-xs">
+              {isConfigsLoading ? (
+                <Skeleton className="h-4 w-30" />
+              ) : validationState && activeConfig && isJson ? (
+                <span
+                  className={cn(
+                    'flex items-center gap-1.5 text-[13px] tracking-wide',
+                    validationState.isValid ? 'text-green-400/90' : 'text-red-500'
+                  )}
+                >
+                  {validationState.isValid ? <IconCheck size={15} /> : <IconX size={15} />}
+                  {validationState.isValid
+                    ? `${fileLanguage?.toUpperCase()} валиден`
+                    : `Ошибка: ${validationState.error || 'Файл невалиден'}`}
+                </span>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {isConfigsLoading ? (
+                <div className="flex gap-1.5">
+                  {[120, 117, 96, 100].map((w) => (
+                    <Skeleton key={w} className="h-9" style={{ width: w }} />
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button size="default" disabled={!canApply} className="btn-brand" onClick={() => saveAndApply()}>
+                          <IconRefresh data-icon="inline-start" /> Применить
+                        </Button>
+                      }
+                    />
+                    <TooltipContent>Сохранить и перезапустить</TooltipContent>
+                  </Tooltip>
+                  <Button size="default" disabled={!canSave} onClick={() => saveCurrentConfig()}>
+                    <IconDeviceFloppy data-icon="inline-start" /> Сохранить
+                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button variant="outline" disabled={!canFormat} onClick={() => editorRef.current?.format()}>
+                          <IconCode data-icon="inline-start" /> <span className="hidden sm:inline">Формат</span>
+                        </Button>
+                      }
+                    />
+                    <TooltipContent>Форматировать файл</TooltipContent>
+                  </Tooltip>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button variant="outline">
+                          <IconDotsFilled data-icon="inline-start" /> <span className="hidden sm:inline">Утилиты</span>
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="end" className="min-w-64">
+                      <DropdownMenuGroup>
+                        <DropdownMenuLabel>Утилиты</DropdownMenuLabel>
+                        <DropdownMenuItem onClick={onOpenImport}>
+                          <IconLink /> Добавить подключение
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={onOpenTemplate}>
+                          <IconFileText /> Шаблоны конфигураций
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="whitespace-nowrap"
+                          onClick={(e) => {
+                            if ((e.target as HTMLElement).closest('[data-quick-backup]')) void quickBackup()
+                            else onOpenBackups()
+                          }}
+                        >
+                          <IconBox /> Бэкапы конфигураций
                           <Button
-                            size="default"
-                            disabled={!canApply}
-                            className="btn-brand"
-                            onClick={() => saveAndApply()}
+                            variant="outline"
+                            size="icon-xs"
+                            data-quick-backup
+                            aria-label="Быстрый бэкап"
+                            title="Быстрый бэкап"
+                            tabIndex={-1}
+                            className="ml-auto size-5 rounded-[min(var(--radius-md),6px)]"
                           >
-                            <IconRefresh data-icon="inline-start" /> Применить
+                            <IconBoltFilled />
                           </Button>
-                        }
-                      />
-                      <TooltipContent>Сохранить и перезапустить</TooltipContent>
-                    </Tooltip>
-                    <Button size="default" disabled={!canSave} onClick={() => saveCurrentConfig()}>
-                      <IconDeviceFloppy data-icon="inline-start" /> Сохранить
-                    </Button>
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button variant="outline" disabled={!canFormat} onClick={() => editorRef.current?.format()}>
-                            <IconCode data-icon="inline-start" /> <span className="hidden sm:inline">Формат</span>
-                          </Button>
-                        }
-                      />
-                      <TooltipContent>Форматировать файл</TooltipContent>
-                    </Tooltip>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button variant="outline">
-                            <IconDotsFilled data-icon="inline-start" /> <span className="hidden sm:inline">Утилиты</span>
-                          </Button>
-                        }
-                      />
-                      <DropdownMenuContent align="end" className="min-w-64">
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={onOpenGeoScan}>
+                          <IconSearch /> Скан геофайлов
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={onOpenRouteTest}>
+                          <IconRoute /> Проверка маршрута
+                        </DropdownMenuItem>
+                      </DropdownMenuGroup>
+                      <DropdownMenuSeparator />
+                      {isMobile ? (
                         <DropdownMenuGroup>
-                          <DropdownMenuLabel>Утилиты</DropdownMenuLabel>
-                          <DropdownMenuItem onClick={onOpenImport}>
-                            <IconLink /> Добавить подключение
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={onOpenTemplate}>
-                            <IconFileText /> Шаблоны конфигураций
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="whitespace-nowrap"
-                            onClick={(e) => {
-                              if ((e.target as HTMLElement).closest('[data-quick-backup]')) void quickBackup()
-                              else onOpenBackups()
-                            }}
-                          >
-                            <IconBox /> Бэкапы конфигураций
-                            <Button
-                              variant="outline"
-                              size="icon-xs"
-                              data-quick-backup
-                              aria-label="Быстрый бэкап"
-                              title="Быстрый бэкап"
-                              tabIndex={-1}
-                              className="ml-auto size-5 rounded-[min(var(--radius-md),6px)]"
-                            >
-                              <IconBoltFilled />
-                            </Button>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={onOpenGeoScan}>
-                            <IconSearch /> Скан геофайлов
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={onOpenRouteTest}>
-                            <IconRoute /> Проверка маршрута
-                          </DropdownMenuItem>
+                          <DropdownMenuLabel>Полезные ссылки</DropdownMenuLabel>
+                          {usefulLinks.map((link) => (
+                            <DropdownMenuItem key={link.url} onClick={() => window.open(link.url, '_blank', 'noopener,noreferrer')}>
+                              <IconExternalLinkFilled /> {link.title}
+                            </DropdownMenuItem>
+                          ))}
                         </DropdownMenuGroup>
-                        <DropdownMenuSeparator />
-                        {isMobile ? (
-                          <DropdownMenuGroup>
-                            <DropdownMenuLabel>Полезные ссылки</DropdownMenuLabel>
+                      ) : (
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger>
+                            <IconExternalLinkFilled /> Полезные ссылки
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="min-w-55">
                             {usefulLinks.map((link) => (
                               <DropdownMenuItem key={link.url} onClick={() => window.open(link.url, '_blank', 'noopener,noreferrer')}>
                                 <IconExternalLinkFilled /> {link.title}
                               </DropdownMenuItem>
                             ))}
-                          </DropdownMenuGroup>
-                        ) : (
-                          <DropdownMenuSub>
-                            <DropdownMenuSubTrigger>
-                              <IconExternalLinkFilled /> Полезные ссылки
-                            </DropdownMenuSubTrigger>
-                            <DropdownMenuSubContent className="min-w-55">
-                              {usefulLinks.map((link) => (
-                                <DropdownMenuItem key={link.url} onClick={() => window.open(link.url, '_blank', 'noopener,noreferrer')}>
-                                  <IconExternalLinkFilled /> {link.title}
-                                </DropdownMenuItem>
-                              ))}
-                            </DropdownMenuSubContent>
-                          </DropdownMenuSub>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </>
-                )}
-              </div>
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </>
+              )}
             </div>
+          </div>
         </div>
-        {mountXraySubs && (
-          <XraySubscriptionsModal
-            open={isXraySubsOpen}
-            onOpenChange={setIsXraySubsOpen}
-            onChanged={() => void refreshConfigsAndEditor()}
-            onAddNew={() => {
-              setIsXraySubsOpen(false)
-              onOpenImport()
-            }}
-          />
-        )}
         <BackupsModalContainer onRefreshConfigs={refreshConfigsAndEditor} />
         {massConfirm && (
           <MassConfirmDialog

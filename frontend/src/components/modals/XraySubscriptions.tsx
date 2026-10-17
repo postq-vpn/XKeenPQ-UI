@@ -40,7 +40,7 @@ import { apiCall } from '../../lib/api'
 import { useAppActions } from '../../lib/store'
 import type { ProxySubscriptionInfo, XraySubscription, XraySubscriptionServer } from '../../lib/types'
 import { FlagPicker } from './FlagPicker'
-import { filterHiddenServers, HiddenServersToggle, useShowHiddenServers } from './HiddenServers'
+import { filterHiddenServers, HiddenServersToggle, isHiddenServer, useShowHiddenServers } from './HiddenServers'
 import { ActionButton, formatDateTime, formatRelativeTime, formatTraffic, LoadingTable, ProviderBadge } from './SubscriptionTableParts'
 
 /** Подписка всегда запрашивается с этим User-Agent (backend: subscriptions::USER_AGENT). */
@@ -227,18 +227,20 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
       const res = await apiCall<ApiResult & Partial<PreviewResponse>>('POST', 'subscriptions/preview', { ...payload, auto_tag: autoTag })
       if (!res.success) throw new Error(res.error)
       const suggested = autoTag ? res.suggested_tag : undefined
-      setForm((prev) => ({
-        ...prev,
-        title: res.title ?? prev.title,
-        ...(suggested && suggested !== prev.tag
-          ? {
-              tag: suggested,
-              disabled_servers: prev.disabled_servers.map((t) =>
-                t.startsWith(`${prev.tag}--`) ? `${suggested}--${t.slice(prev.tag.length + 2)}` : t
-              ),
-            }
-          : {}),
-      }))
+      const firstLoad = !isEdit && !preview
+      setForm((prev) => {
+        const tag = suggested && suggested !== prev.tag ? suggested : prev.tag
+        let disabled = prev.disabled_servers.map((t) =>
+          tag !== prev.tag && t.startsWith(`${prev.tag}--`) ? `${tag}--${t.slice(prev.tag.length + 2)}` : t
+        )
+        // Новая подписка: служебные серверы («Россия», «авто», «тест»…) сразу отключены, как сделает backend.
+        if (firstLoad) {
+          const servers = res.servers ?? []
+          const hidden = servers.filter((s) => isHiddenServer(s.tag.startsWith(`${tag}--`) ? s.tag.slice(tag.length + 2) : s.tag))
+          if (hidden.length < servers.length) disabled = [...new Set([...disabled, ...hidden.map((s) => s.tag)])]
+        }
+        return { ...prev, title: res.title ?? prev.title, tag, disabled_servers: disabled }
+      })
       setPreview({ servers: res.servers ?? [], skipped: res.skipped ?? [], userinfo: res.userinfo })
     } catch (e: any) {
       setPreview(null)
@@ -665,7 +667,8 @@ export function PingBadge({ result }: { result?: PingResult }) {
   if (!result) return null
   if (result.loading) return <Spinner className="size-3.5 shrink-0" />
   if (result.ms != null) {
-    const tone = result.ms < 150 ? 'text-green-400' : result.ms < 400 ? 'text-yellow-400' : 'text-orange-400'
+    // Пинг — реальный запрос через сервер (см. backend ping.rs), поэтому пороги выше, чем у TCP.
+    const tone = result.ms < 300 ? 'text-green-400' : result.ms < 700 ? 'text-yellow-400' : 'text-orange-400'
     return <span className={cn('shrink-0 font-mono text-xs tabular-nums', tone)}>{result.ms} мс</span>
   }
   const udp = result.error?.startsWith('UDP')
@@ -859,6 +862,12 @@ export function XrayServerDialog({ sub, onClose, onDone }: ServerDialogProps) {
 interface ModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Встроенный блок главной страницы вместо окна. */
+  asPage?: boolean
+  /** Меняется, когда подписки изменились снаружи (добавлена новая) — список перечитывается. */
+  reloadKey?: number
+  /** Элементы справа в заголовке блока (режим страницы). */
+  headerExtra?: ReactNode
   /** Вызывается после изменения файлов outbounds, чтобы перечитать конфиги. */
   onChanged: () => void
   /** Открыть «Добавить подключение» (сервер или подписка). */
@@ -872,7 +881,8 @@ function serversBadge(sub: XraySubscription) {
 }
 
 /** Серверы и подписки Xray. */
-export function XraySubscriptionsModal({ open, onOpenChange, onChanged, onAddNew }: ModalProps) {
+export function XraySubscriptionsModal({ open: openProp, onOpenChange, onChanged, onAddNew, asPage, reloadKey, headerExtra }: ModalProps) {
+  const open = asPage || openProp
   const { showToast } = useAppActions()
   const [subs, setSubs] = useState<XraySubscription[]>([])
   const [loading, setLoading] = useState(true)
@@ -905,9 +915,9 @@ export function XraySubscriptionsModal({ open, onOpenChange, onChanged, onAddNew
 
   useEffect(() => {
     if (!open) return
-    setTab('servers')
-    void load()
-  }, [open, load])
+    if (!asPage) setTab('servers')
+    void load(asPage && reloadKey !== undefined && reloadKey > 0)
+  }, [open, load, asPage, reloadKey])
 
   // Пинг всех серверов при заходе на вкладку «Серверы».
   useEffect(() => {
@@ -1248,73 +1258,90 @@ export function XraySubscriptionsModal({ open, onOpenChange, onChanged, onAddNew
     </Table>
   )
 
+  const body = (
+    <Tabs value={tab} onValueChange={(v) => setTab(v as ModalTab)} className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <TabsList>
+          <TabsTrigger value="servers">Серверы</TabsTrigger>
+          <TabsTrigger value="subscriptions">Подписки</TabsTrigger>
+        </TabsList>
+        <InputGroup className="min-w-40 flex-1">
+          <InputGroupInput value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Фильтр" />
+          <InputGroupAddon>
+            <IconFilter />
+          </InputGroupAddon>
+          {filter && (
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton className="text-muted-foreground hover:text-destructive" onClick={() => setFilter('')}>
+                <IconX size={13} />
+              </InputGroupButton>
+            </InputGroupAddon>
+          )}
+        </InputGroup>
+        <Button variant="outline" onClick={onAddNew}>
+          <IconPlus data-icon="inline-start" />
+          Добавить
+        </Button>
+      </div>
+
+      <div className="border-border bg-input-background min-h-0 flex-1 scrollbar-thin overflow-auto rounded-xl border">
+        {loading ? (
+          <LoadingTable />
+        ) : subs.length === 0 ? (
+          <Empty className="min-h-90 border-none">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <IconDatabase className="size-8" />
+              </EmptyMedia>
+              <EmptyTitle className="text-[16px] tracking-normal">Подписок пока нет</EmptyTitle>
+              <EmptyDescription>Добавьте сервер или ссылку на подписку — серверы подписки будут обновляться сами</EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button variant="ghost" size="sm" onClick={onAddNew}>
+                <IconPlus data-icon="inline-start" className="size-4" />
+                Добавить
+              </Button>
+            </EmptyContent>
+          </Empty>
+        ) : (
+          <>
+            <TabsContent value="servers">{serversTab}</TabsContent>
+            <TabsContent value="subscriptions">{subscriptionsTab}</TabsContent>
+          </>
+        )}
+      </div>
+    </Tabs>
+  )
+
   return (
     <TooltipProvider delayDuration={500} skipDelayDuration={0}>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent initialFocus={false} className="w-full max-w-[95vw]! md:w-[min(80vw,850px)]">
-          <div className="flex max-h-[88dvh] flex-col gap-4 overflow-hidden md:max-h-[60dvh]">
-            <DialogHeader className="shrink-0">
-              <DialogTitle className="flex items-center gap-2 pr-8 pb-3">
-                <IconDatabase size={22} className="text-chart-2" />
-                Подписки Xray
-              </DialogTitle>
-            </DialogHeader>
-
-            <Tabs value={tab} onValueChange={(v) => setTab(v as ModalTab)} className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-              <div className="flex shrink-0 flex-wrap items-center gap-2">
-                <TabsList>
-                  <TabsTrigger value="servers">Серверы</TabsTrigger>
-                  <TabsTrigger value="subscriptions">Подписки</TabsTrigger>
-                </TabsList>
-                <InputGroup className="min-w-40 flex-1">
-                  <InputGroupInput value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Фильтр" />
-                  <InputGroupAddon>
-                    <IconFilter />
-                  </InputGroupAddon>
-                  {filter && (
-                    <InputGroupAddon align="inline-end">
-                      <InputGroupButton className="text-muted-foreground hover:text-destructive" onClick={() => setFilter('')}>
-                        <IconX size={13} />
-                      </InputGroupButton>
-                    </InputGroupAddon>
-                  )}
-                </InputGroup>
-                <Button variant="outline" onClick={onAddNew}>
-                  <IconPlus data-icon="inline-start" />
-                  Добавить
-                </Button>
-              </div>
-
-              <div className="border-border bg-input-background min-h-0 flex-1 scrollbar-thin overflow-auto rounded-xl border">
-                {loading ? (
-                  <LoadingTable />
-                ) : subs.length === 0 ? (
-                  <Empty className="min-h-90 border-none">
-                    <EmptyHeader>
-                      <EmptyMedia variant="icon">
-                        <IconDatabase className="size-8" />
-                      </EmptyMedia>
-                      <EmptyTitle className="text-[16px] tracking-normal">Подписок пока нет</EmptyTitle>
-                      <EmptyDescription>Добавьте сервер или ссылку на подписку — серверы подписки будут обновляться сами</EmptyDescription>
-                    </EmptyHeader>
-                    <EmptyContent>
-                      <Button variant="ghost" size="sm" onClick={onAddNew}>
-                        <IconPlus data-icon="inline-start" className="size-4" />
-                        Добавить
-                      </Button>
-                    </EmptyContent>
-                  </Empty>
-                ) : (
-                  <>
-                    <TabsContent value="servers">{serversTab}</TabsContent>
-                    <TabsContent value="subscriptions">{subscriptionsTab}</TabsContent>
-                  </>
-                )}
-              </div>
-            </Tabs>
+      {asPage ? (
+        <section className="border-border bg-card flex flex-col gap-4 rounded-xl border px-3 py-3 sm:px-4 sm:py-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="flex items-center gap-2 text-lg font-semibold select-none">
+              <IconDatabase size={20} className="text-chart-2" />
+              Подписка и серверы
+            </h2>
+            <div className="ml-auto flex items-center gap-2">{headerExtra}</div>
           </div>
-        </DialogContent>
-      </Dialog>
+          <div className="flex max-h-[70dvh] min-h-0 flex-col">{body}</div>
+        </section>
+      ) : (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+          <DialogContent initialFocus={false} className="w-full max-w-[95vw]! md:w-[min(80vw,850px)]">
+            <div className="flex max-h-[88dvh] flex-col gap-4 overflow-hidden md:max-h-[60dvh]">
+              <DialogHeader className="shrink-0">
+                <DialogTitle className="flex items-center gap-2 pr-8 pb-3">
+                  <IconDatabase size={22} className="text-chart-2" />
+                  Подписки Xray
+                </DialogTitle>
+              </DialogHeader>
+
+              {body}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent className="flex max-h-[90dvh] w-auto! max-w-[min(90vw,900px)]! min-w-[min(90vw,480px)]! flex-col overflow-hidden">

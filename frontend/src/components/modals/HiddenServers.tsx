@@ -2,8 +2,8 @@ import { Switch } from '@/components/ui/switch'
 import { IconEyeOff } from '@tabler/icons-react'
 import { useSyncExternalStore } from 'react'
 
-/** Служебные серверы подписок (российские, авто-выбор, «обход»), которые по умолчанию не показываем. Кириллица и латиница. */
-const HIDDEN_SERVER_RE = /россия|авто|обход|russia|auto|bypass/i
+/** Служебные серверы подписок (российские, авто-выбор, «обход», тестовые): скрыты из списков и отключены по умолчанию (backend: HIDDEN_SERVER_WORDS). */
+const HIDDEN_SERVER_RE = /россия|авто|обход|тест|russia|auto|bypass|test/i
 
 export const isHiddenServer = (name: string) => HIDDEN_SERVER_RE.test(name)
 
@@ -62,7 +62,7 @@ export function HiddenServersToggle({ count, show, onChange }: { count: number; 
   return (
     <label
       className="text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-1.5 text-xs select-none"
-      title="Серверы со словами «Россия», «авто», «обход» (и russia, auto, bypass) в названии"
+      title="Серверы со словами «Россия», «авто», «обход», «тест» (и russia, auto, bypass, test) в названии"
       onClick={(e) => e.stopPropagation()}
     >
       <IconEyeOff size={14} />

@@ -6,12 +6,14 @@
 
 mod device;
 mod parser;
+mod ping;
 mod routing;
 mod selection;
 mod title;
 
 pub use device::get_device;
-pub use selection::{post_ping, post_primary};
+pub use ping::post_ping;
+pub use selection::post_primary;
 
 use crate::logger::log;
 use crate::types::*;
@@ -69,6 +71,9 @@ pub struct Subscription {
     /// Теги серверов, отключённых пользователем. Тег строится из имени сервера, поэтому
     /// отключение переживает обновления и смену порядка серверов в подписке.
     pub disabled_servers: Vec<String>,
+    /// Служебные серверы («Россия», «авто», «обход», «тест»…), уже отключённые автоматически при
+    /// первом появлении. Если пользователь включил такой сервер, повторно он не отключается.
+    pub auto_disabled: Vec<String>,
     /// Выбранный сервер (тег). В файл добавляется outbound с тегом подписки — его копия;
     /// на него ссылаются правила маршрутизации. Пусто — первый включённый сервер.
     pub primary: String,
@@ -107,6 +112,7 @@ impl Default for Subscription {
             exclude_type: String::new(),
             fingerprint: String::new(),
             disabled_servers: vec![],
+            auto_disabled: vec![],
             primary: String::new(),
             auto_tag: false,
             tag_title: String::new(),
@@ -173,6 +179,7 @@ impl Subscription {
     fn keep_status(&mut self, from: &Subscription) {
         self.title = from.title.clone();
         self.tag_title = from.tag_title.clone();
+        self.auto_disabled = from.auto_disabled.clone();
         self.last_update = from.last_update;
         self.last_attempt = from.last_attempt;
         self.last_error = from.last_error.clone();
@@ -560,6 +567,7 @@ async fn rename_subscription(sub: &mut Subscription, new_tag: &str) -> Result<()
     let move_tag = |t: &str| t.strip_prefix(&old_prefix).map_or_else(|| t.to_string(), |rest| format!("{new_prefix}{rest}"));
     retag(&mut sub.cached_outbounds, &old, new_tag);
     sub.disabled_servers = sub.disabled_servers.iter().map(|t| move_tag(t)).collect();
+    sub.auto_disabled = sub.auto_disabled.iter().map(|t| move_tag(t)).collect();
     sub.primary = move_tag(&sub.primary);
     sub.tag = new_tag.to_string();
 
@@ -598,11 +606,45 @@ async fn sync_auto_tags(store: &mut Store) -> bool {
     changed
 }
 
+/// Слова в названии служебных серверов, которые скрываются и отключаются по умолчанию
+/// (как `HIDDEN_SERVER_RE` во frontend/HiddenServers.tsx).
+const HIDDEN_SERVER_WORDS: [&str; 8] = ["россия", "авто", "обход", "тест", "russia", "auto", "bypass", "test"];
+
+fn is_hidden_server(name: &str) -> bool {
+    let name = name.to_lowercase();
+    HIDDEN_SERVER_WORDS.iter().any(|w| name.contains(w))
+}
+
+/// Отключает служебные серверы при их первом появлении. Выбранный сервер не трогаем, и если
+/// служебные — все серверы подписки, ничего не отключаем, чтобы подписка не осталась пустой.
+fn auto_disable_hidden(sub: &mut Subscription, outbounds: &[Value]) {
+    let prefix = format!("{}--", sub.tag);
+    let tags: Vec<&str> = outbounds.iter().filter_map(|o| o["tag"].as_str()).collect();
+    let hidden: Vec<&str> = tags
+        .iter()
+        .copied()
+        .filter(|t| is_hidden_server(t.strip_prefix(&prefix).unwrap_or(t)))
+        .collect();
+    if hidden.len() == tags.len() {
+        return;
+    }
+    for tag in hidden {
+        if tag == sub.primary || sub.auto_disabled.iter().any(|t| t == tag) {
+            continue;
+        }
+        sub.auto_disabled.push(tag.to_string());
+        if !sub.disabled_servers.iter().any(|t| t == tag) {
+            sub.disabled_servers.push(tag.to_string());
+        }
+    }
+}
+
 /// Обновляет подписку и её статус. Возвращает true, если файл outbounds изменился.
 async fn refresh(state: &AppState, sub: &mut Subscription) -> Result<bool, String> {
     sub.last_attempt = now();
     let result = async {
         let fetched = fetch_subscription(state, sub).await?;
+        auto_disable_hidden(sub, &fetched.outbounds);
         let enabled = enabled_outbounds(sub, &fetched.outbounds)?;
         let count = enabled.len();
         let changed = write_outbounds(&sub.tag, &with_active_alias(sub, enabled)).await?;
@@ -1196,6 +1238,23 @@ mod tests {
         assert!(sub.is_due(4600 + MAX_RETRY_DELAY));
         sub.interval = 0;
         assert!(!sub.is_due(i64::MAX));
+    }
+
+    #[test]
+    fn hidden_servers_disabled_once() {
+        let out = |n: &str| json!({ "tag": format!("s--{n}"), "protocol": "vless" });
+        let outbounds = vec![out("NL"), out("Россия"), out("Авто-выбор"), out("Тестовый"), out("DE")];
+        let mut sub = Subscription { tag: "s".into(), ..Default::default() };
+        auto_disable_hidden(&mut sub, &outbounds);
+        assert_eq!(sub.disabled_servers, ["s--Россия", "s--Авто-выбор", "s--Тестовый"]);
+        // Пользователь включил «Россия» — при следующем обновлении она остаётся включённой.
+        sub.disabled_servers.retain(|t| t != "s--Россия");
+        auto_disable_hidden(&mut sub, &outbounds);
+        assert_eq!(sub.disabled_servers, ["s--Авто-выбор", "s--Тестовый"]);
+        // Все серверы служебные — не отключаем ничего.
+        let mut only = Subscription { tag: "s".into(), ..Default::default() };
+        auto_disable_hidden(&mut only, &[out("Россия"), out("Тест")]);
+        assert!(only.disabled_servers.is_empty());
     }
 
     #[test]

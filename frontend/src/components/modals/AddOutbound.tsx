@@ -29,9 +29,11 @@ interface Props {
   onAddToConfig: (content: string, position: 'start' | 'end') => void
   /** Подписка Xray добавлена — родитель открывает выбор основного сервера. */
   onSubscriptionSaved: (sub: XraySubscription) => void
+  /** Первый запуск без подписок: окно просит добавить подписку. */
+  welcome?: boolean
 }
 
-export function ImportModal({ onGenerate, onAddToConfig, onSubscriptionSaved }: Props) {
+export function ImportModal({ onGenerate, onAddToConfig, onSubscriptionSaved, welcome }: Props) {
   const { showToast, state } = useAppContext({ includeConfigs: true })
   const { modals, dispatch } = useModalContext()
   const [uri, setUri] = useState('')
@@ -60,7 +62,9 @@ export function ImportModal({ onGenerate, onAddToConfig, onSubscriptionSaved }: 
     reset()
 
     if (/^https?:\/\//i.test(trimmed)) {
-      const existingTags = state.configs.map((c) => c.file.match(/04_outbounds(?:_sub)?\.([\w-]+)\.json$/)?.[1]).filter((t): t is string => !!t)
+      const existingTags = state.configs
+        .map((c) => c.file.match(/04_outbounds(?:_sub)?\.([\w-]+)\.json$/)?.[1])
+        .filter((t): t is string => !!t)
       setXraySub(createXraySubscription(trimmed, existingTags))
       return
     }
@@ -98,9 +102,13 @@ export function ImportModal({ onGenerate, onAddToConfig, onSubscriptionSaved }: 
         <DialogContent className="flex max-h-[90dvh] w-auto! max-w-[min(90vw,900px)]! min-w-[min(90vw,480px)]! flex-col overflow-hidden">
           <DialogHeader className="shrink-0 pb-1">
             <DialogTitle className="flex items-center gap-2 pb-2">
-              <IconLink size={24} className="text-chart-2" /> Добавить подключение
+              <IconLink size={24} className="text-chart-2" /> {welcome ? 'Добавьте подписку' : 'Добавить подключение'}
             </DialogTitle>
-            <DialogDescription>Вставьте ссылку в формате protocol:// или ссылку на подписку https://</DialogDescription>
+            <DialogDescription>
+              {welcome
+                ? 'Чтобы начать, вставьте ссылку на подписку https:// от вашего VPN-провайдера — серверы загрузятся и будут обновляться сами'
+                : 'Вставьте ссылку в формате protocol:// или ссылку на подписку https://'}
+            </DialogDescription>
           </DialogHeader>
 
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
@@ -147,7 +155,7 @@ export function ImportModal({ onGenerate, onAddToConfig, onSubscriptionSaved }: 
                   <Button
                     variant="outline"
                     size="sm"
-                    className="min-w-0 flex-1 shrink gap-1.5 px-1.5 text-xs max-sm:[&_svg]:hidden sm:px-2.5"
+                    className="min-w-0 flex-1 shrink gap-1.5 px-1.5 text-xs sm:px-2.5 max-sm:[&_svg]:hidden"
                     onClick={() => addToConfig('start')}
                   >
                     <IconPlus /> <span className="truncate">В начало</span>
@@ -155,7 +163,7 @@ export function ImportModal({ onGenerate, onAddToConfig, onSubscriptionSaved }: 
                   <Button
                     variant="outline"
                     size="sm"
-                    className="min-w-0 flex-1 shrink gap-1.5 px-1.5 text-xs max-sm:[&_svg]:hidden sm:px-2.5"
+                    className="min-w-0 flex-1 shrink gap-1.5 px-1.5 text-xs sm:px-2.5 max-sm:[&_svg]:hidden"
                     onClick={() => addToConfig('end')}
                   >
                     <IconPlus /> <span className="truncate">В конец</span>
@@ -191,7 +199,7 @@ export function ImportModal({ onGenerate, onAddToConfig, onSubscriptionSaved }: 
               </InputGroup>
 
               <Button onClick={generate} disabled={!isValidUri} className="w-full">
-                Сгенерировать
+                {/^https?:\/\//i.test(uri.trim()) || (welcome && !uri.trim()) ? 'Продолжить' : 'Сгенерировать'}
               </Button>
             </div>
           </div>
