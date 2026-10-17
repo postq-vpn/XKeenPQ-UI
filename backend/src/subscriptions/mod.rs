@@ -134,6 +134,10 @@ impl Subscription {
         if !TAG_RE.is_match(&self.tag) {
             return Err("Название подписки: только латиница, цифры, «-» и «_» (до 64 символов)".into());
         }
+        // «--» отделяет имя сервера в теге: «a--b» совпал бы с сервером «b» подписки «a».
+        if self.tag.contains("--") {
+            return Err("Название подписки не должно содержать «--»".into());
+        }
         if !self.url.starts_with("http://") && !self.url.starts_with("https://") {
             return Err("URL подписки должен начинаться с http:// или https://".into());
         }
@@ -393,6 +397,7 @@ fn build_outbounds(sub: &Subscription, proxies: Vec<parser::ParsedProxy>) -> Res
         .collect();
 
     let mut counters: HashMap<String, usize> = HashMap::new();
+    let mut used = std::collections::HashSet::new();
     let mut result = vec![];
     for proxy in proxies {
         if include.as_ref().is_some_and(|re| !re.is_match(&proxy.name))
@@ -411,11 +416,14 @@ fn build_outbounds(sub: &Subscription, proxies: Vec<parser::ParsedProxy>) -> Res
         } else {
             format!("{}--{}", sub.tag, name)
         };
-        let count = counters.entry(tag.clone()).or_default();
-        *count += 1;
-        if *count > 1 {
-            tag = format!("{tag}--{count}");
+        // Нумеруем повторы, пока тег не станет уникальным (имя сервера само может быть «NL--2»).
+        let base = tag.clone();
+        while used.contains(&tag) {
+            let count = counters.entry(base.clone()).or_insert(1);
+            *count += 1;
+            tag = format!("{base}--{count}");
         }
+        used.insert(tag.clone());
 
         let mut outbound = serde_json::Map::new();
         outbound.insert("tag".into(), json!(tag));
@@ -644,8 +652,14 @@ fn fail(error: impl Into<String>) -> Json<Value> {
 
 fn server_summary(sub: &Subscription, outbound: &Value) -> Value {
     let settings = &outbound["settings"];
-    let address = settings.get("address").or_else(|| settings.pointer("/vnext/0/address"));
-    let port = settings.get("port").or_else(|| settings.pointer("/vnext/0/port"));
+    // Плоский формат, vnext (vless/vmess) или servers (trojan/ss из JSON-подписок).
+    let field = |key: &str| {
+        settings
+            .get(key)
+            .or_else(|| settings.pointer(&format!("/vnext/0/{key}")))
+            .or_else(|| settings.pointer(&format!("/servers/0/{key}")))
+    };
+    let (address, port) = (field("address"), field("port"));
     json!({
         "tag": outbound["tag"],
         "protocol": outbound["protocol"],
@@ -705,6 +719,19 @@ pub async fn post_subscription(State(state): State<AppState>, Json(mut sub): Jso
     let mut store = load_store().await;
     if store.subscriptions.iter().any(|s| s.tag == sub.tag) {
         return fail(format!("Подписка «{}» уже существует", sub.tag));
+    }
+    // Тег подписки станет тегом outbound: совпадение с существующим (например, «direct»)
+    // заменило бы его при склейке конфигов Xray.
+    let conf_files = routing::read_conf_files().await;
+    if let Some((_, file)) = routing::outbound_tags(&conf_files)
+        .into_iter()
+        .find(|(tag, _)| *tag == sub.tag)
+    {
+        return fail(format!(
+            "Тег «{}» уже используется outbound'ом в {}, выберите другое название",
+            sub.tag,
+            file.path.display()
+        ));
     }
     if let Some(path) = [outbounds_path(&sub.tag), legacy_outbounds_path(&sub.tag)]
         .into_iter()
@@ -912,6 +939,11 @@ mod tests {
         .unwrap();
         let tags: Vec<_> = out.iter().map(|o| o["tag"].as_str().unwrap()).collect();
         assert_eq!(tags, ["sub--NL 1", "sub--NL 1--2", "sub--server"]);
+
+        // имя сервера совпадает с автонумерацией повтора
+        let dup = build_outbounds(&sub, vec![proxy("A"), proxy("A--2"), proxy("A")]).unwrap();
+        let dup_tags: Vec<_> = dup.iter().map(|o| o["tag"].as_str().unwrap()).collect();
+        assert_eq!(dup_tags, ["sub--A", "sub--A--2", "sub--A--3"]);
         assert_eq!(out[0]["streamSettings"]["realitySettings"]["fingerprint"], "safari");
         let rendered = render_outbounds(&out[..1]);
         assert!(rendered.starts_with(
@@ -946,6 +978,8 @@ mod tests {
             ],
             ..Default::default()
         };
+        let ss = json!({ "tag": "sub--SS", "protocol": "shadowsocks", "settings": { "servers": [{ "address": "c", "port": 3 }] } });
+        assert_eq!(server_summary(&sub, &ss)["address"], "c");
         let api = to_api(&sub);
         assert!(api.get("cached_outbounds").is_none());
         assert!(!api.to_string().contains("secret"));
@@ -1016,6 +1050,14 @@ mod tests {
             ..Default::default()
         };
         assert!(ok.validate().is_ok());
+        assert!(
+            Subscription {
+                tag: "a--b".into(),
+                ..ok.clone()
+            }
+            .validate()
+            .is_err()
+        );
         assert!(
             Subscription {
                 hwid: String::new(),

@@ -1,14 +1,17 @@
 //! Автоматическое направление проксируемых правил routing на подписку «Для прокси».
 //!
-//! Проксируемое правило — `outboundTag`, указывающий на outbound не типа freedom/blackhole/
-//! dns/loopback, либо на тег, которого уже нет (например, удалённый сервер). Правила direct,
-//! block и с `balancerTag` не трогаются. Файл правится точечно: заменяются только значения
+//! Проксируемое правило — `outboundTag`, указывающий на собственный outbound пользователя не типа
+//! freedom/blackhole/dns/loopback/wireguard, либо на тег, которого уже нет (например, удалённый
+//! сервер). Не трогаются: правила direct, block, с `balancerTag`, на WireGuard (обычно WARP для
+//! отдельных сайтов) и на существующие серверы подписок (другая подписка или конкретный сервер,
+//! выбранные пользователем вручную). Файл правится точечно: заменяются только значения
 //! `"outboundTag"`, поэтому комментарии и форматирование сохраняются.
 
 use super::*;
 use std::collections::HashSet;
 
-const NON_PROXY_PROTOCOLS: [&str; 4] = ["freedom", "blackhole", "dns", "loopback"];
+/// Outbounds пользователя, правила на которые не переводятся на подписку.
+const KEEP_PROTOCOLS: [&str; 5] = ["freedom", "blackhole", "dns", "loopback", "wireguard"];
 
 /// Убирает `//` и `/* */` комментарии вне строк (конфиги Xray их допускают, serde_json — нет).
 pub fn strip_jsonc(src: &str) -> String {
@@ -55,14 +58,41 @@ pub fn strip_jsonc(src: &str) -> String {
     out
 }
 
-struct ConfFile {
-    path: PathBuf,
-    text: String,
-    json: Option<Value>,
+pub(super) struct ConfFile {
+    pub path: PathBuf,
+    pub text: String,
+    pub json: Option<Value>,
 }
 
-async fn read_conf_files() -> Vec<ConfFile> {
-    let Ok(mut dir) = tokio::fs::read_dir(XRAY_CONF_DIR).await else {
+impl ConfFile {
+    /// Файл outbounds подписки, который пишет панель.
+    pub fn is_subscription(&self) -> bool {
+        self.path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("04_outbounds_sub."))
+    }
+}
+
+/// Теги outbounds из конфигов; `Some(file)` — в каком файле объявлен.
+pub(super) fn outbound_tags(files: &[ConfFile]) -> Vec<(String, &ConfFile)> {
+    files
+        .iter()
+        .filter_map(|f| Some((f.json.as_ref()?.get("outbounds")?.as_array()?, f)))
+        .flat_map(|(outbounds, f)| {
+            outbounds
+                .iter()
+                .filter_map(move |o| Some((o.get("tag")?.as_str()?.to_string(), f)))
+        })
+        .collect()
+}
+
+pub(super) async fn read_conf_files() -> Vec<ConfFile> {
+    read_conf_files_in(std::path::Path::new(XRAY_CONF_DIR)).await
+}
+
+async fn read_conf_files_in(dir: &std::path::Path) -> Vec<ConfFile> {
+    let Ok(mut dir) = tokio::fs::read_dir(dir).await else {
         return vec![];
     };
     let mut files = vec![];
@@ -81,20 +111,32 @@ async fn read_conf_files() -> Vec<ConfFile> {
 }
 
 /// Теги из `outboundTag` проксируемых правил, которые нужно перевести на `target`.
-fn proxy_rule_tags(configs: &[Value], target: &str) -> HashSet<String> {
-    let protocols: HashMap<&str, &str> = configs
+/// `configs` — разобранные конфиги и признак «файл подписки».
+fn proxy_rule_tags(configs: &[(&Value, bool)], target: &str) -> HashSet<String> {
+    // tag → (протокол, объявлен в файле подписки)
+    let outbounds: HashMap<&str, (&str, bool)> = configs
         .iter()
-        .filter_map(|c| c.get("outbounds")?.as_array())
-        .flatten()
-        .filter_map(|o| Some((o.get("tag")?.as_str()?, o.get("protocol")?.as_str().unwrap_or(""))))
+        .filter_map(|(c, is_sub)| Some((c.get("outbounds")?.as_array()?, *is_sub)))
+        .flat_map(|(list, is_sub)| {
+            list.iter().filter_map(move |o| {
+                Some((
+                    o.get("tag")?.as_str()?,
+                    (o.get("protocol")?.as_str().unwrap_or(""), is_sub),
+                ))
+            })
+        })
         .collect();
     configs
         .iter()
-        .filter_map(|c| c.pointer("/routing/rules")?.as_array())
+        .filter_map(|(c, _)| c.pointer("/routing/rules")?.as_array())
         .flatten()
         .filter_map(|rule| rule.get("outboundTag")?.as_str())
         .filter(|tag| *tag != target)
-        .filter(|tag| protocols.get(tag).is_none_or(|p| !NON_PROXY_PROTOCOLS.contains(p)))
+        .filter(|tag| match outbounds.get(tag) {
+            None => true,             // тега больше нет
+            Some((_, true)) => false, // существующий сервер подписки — выбор пользователя
+            Some((protocol, false)) => !KEEP_PROTOCOLS.contains(protocol),
+        })
         .map(String::from)
         .collect()
 }
@@ -116,7 +158,10 @@ fn replace_rule_tags(text: &str, tags: &HashSet<String>, target: &str) -> String
 /// Направляет проксируемые правила на `target`. Возвращает true, если routing изменился.
 pub async fn sync(target: &str) -> Result<bool, String> {
     let files = read_conf_files().await;
-    let configs: Vec<Value> = files.iter().filter_map(|f| f.json.clone()).collect();
+    let configs: Vec<(&Value, bool)> = files
+        .iter()
+        .filter_map(|f| Some((f.json.as_ref()?, f.is_subscription())))
+        .collect();
     let tags = proxy_rule_tags(&configs, target);
     if tags.is_empty() {
         return Ok(false);
@@ -169,24 +214,31 @@ mod tests {
 
     #[test]
     fn picks_proxy_rules_only() {
-        let configs = vec![
-            json!({ "outbounds": [
-                { "tag": "direct", "protocol": "freedom" },
-                { "tag": "block", "protocol": "blackhole" },
-                { "tag": "dns-out", "protocol": "dns" },
-                { "tag": "vless-reality", "protocol": "vless" },
-                { "tag": "neonvpn", "protocol": "vless" },
-            ] }),
-            json!({ "routing": { "rules": [
-                { "outboundTag": "block" },
-                { "outboundTag": "direct" },
-                { "outboundTag": "dns-out" },
-                { "outboundTag": "vless-reality" },
-                { "outboundTag": "neonvpn" },
-                { "outboundTag": "oldsub--Removed" },
-                { "balancerTag": "proxy" },
-            ] } }),
-        ];
+        let user = json!({ "outbounds": [
+            { "tag": "direct", "protocol": "freedom" },
+            { "tag": "block", "protocol": "blackhole" },
+            { "tag": "dns-out", "protocol": "dns" },
+            { "tag": "vless-reality", "protocol": "vless" },
+            { "tag": "warp", "protocol": "wireguard" },
+        ] });
+        let neon = json!({ "outbounds": [
+            { "tag": "neonvpn", "protocol": "vless" },
+            { "tag": "neonvpn--NL", "protocol": "vless" },
+        ] });
+        let work = json!({ "outbounds": [{ "tag": "work", "protocol": "trojan" }] });
+        let routing = json!({ "routing": { "rules": [
+            { "outboundTag": "block" },
+            { "outboundTag": "direct" },
+            { "outboundTag": "dns-out" },
+            { "outboundTag": "vless-reality" },
+            { "outboundTag": "warp" },
+            { "outboundTag": "neonvpn" },
+            { "outboundTag": "neonvpn--NL" },
+            { "outboundTag": "work" },
+            { "outboundTag": "oldsub--Removed" },
+            { "balancerTag": "proxy" },
+        ] } });
+        let configs = [(&user, false), (&neon, true), (&work, true), (&routing, false)];
         let mut tags: Vec<_> = proxy_rule_tags(&configs, "neonvpn").into_iter().collect();
         tags.sort();
         assert_eq!(tags, ["oldsub--Removed", "vless-reality"]);
@@ -211,6 +263,32 @@ mod tests {
         assert!(out.contains(r#""outboundTag":"neonvpn""#));
         assert!(out.contains(r#""outboundTag": "direct" }, /* "outboundTag": "direct" */"#));
         assert!(!out.contains("vless-reality"));
+    }
+
+    #[tokio::test]
+    async fn reads_real_files() {
+        let dir = std::env::temp_dir().join(format!("xkeen-ui-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("04_outbounds.json"),
+            "{\n  // свои\n  \"outbounds\": [{ \"tag\": \"direct\", \"protocol\": \"freedom\" }]\n}",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("04_outbounds_sub.neon.json"),
+            r#"{"outbounds":[{"tag":"neon","protocol":"vless"}]}"#,
+        )
+        .unwrap();
+        std::fs::write(dir.join("notes.txt"), "{}").unwrap();
+
+        let files = read_conf_files_in(&dir).await;
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(files.len(), 2);
+        let tags: Vec<_> = outbound_tags(&files)
+            .into_iter()
+            .map(|(tag, f)| (tag, f.is_subscription()))
+            .collect();
+        assert_eq!(tags, [("direct".to_string(), false), ("neon".to_string(), true)]);
     }
 
     #[test]

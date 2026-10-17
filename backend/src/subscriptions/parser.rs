@@ -153,7 +153,7 @@ fn parse_url(link: &str) -> Result<(Url, String, u16, Params, String), String> {
 }
 
 fn parse_standard(link: &str, scheme: &str) -> Result<ParsedProxy, String> {
-    let (url, address, port, params, name) = parse_url(link)?;
+    let (url, address, port, mut params, name) = parse_url(link)?;
     let user = percent_decode(url.username());
     if user.is_empty() {
         return Err(if scheme == "vless" {
@@ -182,6 +182,10 @@ fn parse_standard(link: &str, scheme: &str) -> Result<ParsedProxy, String> {
         "trojan"
     };
 
+    // Trojan без TLS не бывает, а провайдеры часто не пишут security в ссылке.
+    if protocol == "trojan" && param(&params, "security").is_none() {
+        params.insert("security".into(), "tls".into());
+    }
     let network = param(&params, "type").unwrap_or("tcp");
     Ok(ParsedProxy {
         name,
@@ -275,7 +279,16 @@ fn parse_shadowsocks(link: &str) -> Result<ParsedProxy, String> {
         Some((head, name)) => (head, percent_decode(name)),
         None => (rest, String::new()),
     };
-    let rest = rest.split(['?', '/']).next().unwrap_or("");
+    // Отрезаем только query и завершающий «/» (SIP002: host:port/?plugin=…): сам «/» входит
+    // в алфавит base64, и резать по нему нельзя.
+    let (rest, query) = rest.split_once('?').unwrap_or((rest, ""));
+    let rest = rest.trim_end_matches('/');
+    if query
+        .split('&')
+        .any(|kv| kv.starts_with("plugin=") && kv.len() > "plugin=".len())
+    {
+        return Err("плагины Shadowsocks (obfs, v2ray-plugin) не поддерживаются Xray".into());
+    }
 
     let (method, password, server) = match rest.rsplit_once('@') {
         // SIP002: base64(method:password)@host:port или method:password в percent-encoding (2022-blake3)
@@ -537,6 +550,15 @@ mod tests {
     }
 
     #[test]
+    fn trojan_default_tls() {
+        let p = parse_link("trojan://pw@t.com:443?sni=s.com#T").unwrap();
+        assert_eq!(p.outbound["streamSettings"]["security"], "tls");
+        assert_eq!(p.outbound["streamSettings"]["tlsSettings"]["serverName"], "s.com");
+        let none = parse_link("trojan://pw@t.com:443?security=none#T").unwrap();
+        assert_eq!(none.outbound["streamSettings"]["security"], "none");
+    }
+
+    #[test]
     fn trojan_ws() {
         let p = parse_link("trojan://p%40ss@t.com:443?type=ws&security=tls&host=h.com&path=%2Fws#T").unwrap();
         assert_eq!(p.outbound["protocol"], "trojan");
@@ -572,8 +594,17 @@ mod tests {
             json!({ "address": "1.2.3.4", "port": 8388, "method": "aes-256-gcm", "password": "pa:ss" })
         );
 
-        let plain = parse_link("ss://2022-blake3-aes-128-gcm:a%2Bb%3D@s.com:443/?plugin=x#P").unwrap();
+        let plain = parse_link("ss://2022-blake3-aes-128-gcm:a%2Bb%3D@s.com:443/?outline=1#P").unwrap();
         assert_eq!(plain.outbound["settings"]["password"], "a+b=");
+        assert!(parse_link("ss://YWVzLTI1Ni1nY206cHc@s.com:443/?plugin=obfs-local%3Bobfs%3Dhttp#O").is_err());
+
+        // «/» внутри base64 не должен обрезать ссылку
+        let creds = (0..)
+            .map(|i| format!("aes-256-gcm:pw?{i}?@9.9.9.9:443"))
+            .find(|c| STANDARD.encode(c).contains('/'))
+            .unwrap();
+        let p = parse_link(&format!("ss://{}#S", STANDARD.encode(&creds))).unwrap();
+        assert_eq!(p.outbound["settings"]["address"], "9.9.9.9");
 
         let legacy = format!("ss://{}#L", STANDARD.encode("chacha20-ietf-poly1305:pw@[::1]:80"));
         let p = parse_link(&legacy).unwrap();

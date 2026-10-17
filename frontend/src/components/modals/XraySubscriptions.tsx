@@ -190,7 +190,9 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
   const isServerEnabled = (tag: string) => !form.disabled_servers.includes(tag)
   const enabledCount = preview?.servers.filter((s) => isServerEnabled(s.tag)).length ?? 0
 
-  const canSubmit = !busy && !!form.tag.trim() && /^https?:\/\//i.test(form.url.trim()) && !!form.hwid.trim()
+  // «--» отделяет имя сервера в теге, в названии подписки его быть не должно.
+  const tagValid = /^[A-Za-z0-9_-]{1,64}$/.test(form.tag.trim()) && !form.tag.includes('--')
+  const canSubmit = !busy && tagValid && /^https?:\/\//i.test(form.url.trim()) && !!form.hwid.trim()
   const canSave = canSubmit && (!preview || enabledCount > 0)
 
   useEffect(() => {
@@ -275,11 +277,17 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
                     <div className="flex items-center gap-1">
                       <Label className="text-xs">Название подписки</Label>
                       <HintIcon>
-                        Латиница, цифры, «-» и «_». Серверы получат теги вида «название--сервер», в балансировщике достаточно указать само
-                        название.
+                        Латиница, цифры, «-» и «_», без «--» и не совпадающее с вашими outbound (например, direct). Серверы получат теги
+                        вида «название--сервер», в балансировщике достаточно указать само название.
                       </HintIcon>
                     </div>
-                    <Input value={form.tag} disabled={isEdit} onChange={(e) => update('tag', e.target.value)} className="h-8 text-xs" />
+                    <Input
+                      value={form.tag}
+                      disabled={isEdit}
+                      aria-invalid={!isEdit && !tagValid}
+                      onChange={(e) => update('tag', e.target.value)}
+                      className="h-8 text-xs"
+                    />
                   </div>
                   <div className="grid gap-1.5">
                     <div className="flex items-center gap-1">
