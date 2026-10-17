@@ -203,8 +203,7 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
 
   const isServerEnabled = (tag: string) => !form.disabled_servers.includes(tag)
   const [showHidden, setShowHidden] = useShowHiddenServers()
-  const previewName = (tag: string) => (tag.startsWith(`${form.tag}--`) ? tag.slice(form.tag.length + 2) : tag)
-  const previewList = filterHiddenServers(preview?.servers ?? [], (s) => previewName(s.tag), showHidden)
+  const previewList = filterHiddenServers(preview?.servers ?? [], (s) => !isServerEnabled(s.tag), showHidden)
   const enabledCount = preview?.servers.filter((s) => isServerEnabled(s.tag)).length ?? 0
 
   // «--» отделяет имя сервера в теге, в названии подписки его быть не должно.
@@ -668,7 +667,7 @@ export function PingBadge({ result }: { result?: PingResult }) {
   if (result.loading) return <Spinner className="size-3.5 shrink-0" />
   if (result.ms != null) {
     // Пинг — реальный запрос через сервер (см. backend ping.rs), поэтому пороги выше, чем у TCP.
-    const tone = result.ms < 300 ? 'text-green-400' : result.ms < 700 ? 'text-yellow-400' : 'text-orange-400'
+    const tone = result.ms < 400 ? 'text-green-400' : result.ms < 800 ? 'text-yellow-400' : 'text-orange-400'
     return <span className={cn('shrink-0 font-mono text-xs tabular-nums', tone)}>{result.ms} мс</span>
   }
   const udp = result.error?.startsWith('UDP')
@@ -716,12 +715,8 @@ export function XrayServerPicker({ sub, onDone, onSkip }: PickerProps) {
   const { results, ping } = usePing()
   const [selected, setSelected] = useState(sub.primary)
   const [saving, setSaving] = useState(false)
-  const enabledServers = useMemo(() => (sub.server_list ?? []).filter((s) => !s.disabled), [sub])
-  const [showHidden, setShowHidden] = useShowHiddenServers()
-  const { visible: servers, hidden: hiddenCount } = filterHiddenServers(enabledServers, (s) => serverName(sub, s.tag), showHidden, [
-    selected,
-    sub.primary,
-  ])
+  // Отключённые (скрытые) серверы выбрать нельзя — показываем только включённые.
+  const servers = useMemo(() => (sub.server_list ?? []).filter((s) => !s.disabled), [sub])
   const pinging = Object.values(results).some((r) => r.loading)
 
   async function runPing() {
@@ -758,7 +753,6 @@ export function XrayServerPicker({ sub, onDone, onSkip }: PickerProps) {
     <>
       <div className="border-border bg-muted/30 flex shrink-0 items-center justify-between gap-2 border-b px-3 py-1.5 text-xs">
         <span>Серверов: {servers.length}</span>
-        <HiddenServersToggle count={hiddenCount} show={showHidden} onChange={setShowHidden} />
         <Button variant="ghost" size="xs" disabled={pinging} onClick={() => void runPing()}>
           {pinging ? <Spinner className="size-3" /> : <IconRefresh />} Пинг
         </Button>
@@ -767,7 +761,9 @@ export function XrayServerPicker({ sub, onDone, onSkip }: PickerProps) {
       <div className="bg-input-background min-h-0 flex-1 overflow-auto">
         {servers.length === 0 && (
           <div className="text-muted-foreground p-4 text-xs">
-            {hiddenCount > 0 ? 'Все серверы скрыты — включите «Скрытые», чтобы их показать' : 'Список серверов ещё не получен'}
+            {(sub.server_list ?? []).length > 0
+              ? 'Все серверы отключены — включите нужные на вкладке «Серверы»'
+              : 'Список серверов ещё не получен'}
           </div>
         )}
         <RadioGroup value={selected} onValueChange={setSelected} className="gap-0">
@@ -939,9 +935,7 @@ export function XraySubscriptionsModal({ open: openProp, onOpenChange, onChanged
             (s) => !needle || s.tag.toLowerCase().includes(needle) || (s.address ?? '').toLowerCase().includes(needle)
           )
           // При поиске показываем всё найденное, иначе — скрываем служебные, кроме активного.
-          const { visible, hidden } = filterHiddenServers(matched, (s) => serverName(sub, s.tag), showHidden || !!needle, [
-            activeServerTag(sub),
-          ])
+          const { visible, hidden } = filterHiddenServers(matched, (s) => s.disabled, showHidden || !!needle, [activeServerTag(sub)])
           return { sub, servers: visible, hidden }
         })
         .filter((g) => !needle || g.servers.length > 0),

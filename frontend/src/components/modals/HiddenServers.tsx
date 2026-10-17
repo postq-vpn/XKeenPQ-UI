@@ -43,17 +43,18 @@ export function useShowHiddenServers(): [boolean, (value: boolean) => void] {
 }
 
 /**
- * Оставляет видимые серверы. `keep` — теги, которые показываем всегда (выбранный/активный сервер),
- * чтобы текущий выбор не пропадал из списка.
+ * Скрытые — отключённые серверы (служебные отключаются автоматически, см. `isHiddenServer`).
+ * Оставляет видимые; `keep` — теги, которые показываем всегда (активный сервер).
  */
 export function filterHiddenServers<T extends { tag: string }>(
   servers: T[],
-  nameOf: (s: T) => string,
+  isDisabled: (s: T) => boolean,
   show: boolean,
   keep: string[] = []
 ) {
-  const hidden = servers.filter((s) => isHiddenServer(nameOf(s)) && !keep.includes(s.tag)).length
-  return { visible: show ? servers : servers.filter((s) => !isHiddenServer(nameOf(s)) || keep.includes(s.tag)), hidden }
+  const hiddenOf = (s: T) => isDisabled(s) && !keep.includes(s.tag)
+  const hidden = servers.filter(hiddenOf).length
+  return { visible: show ? servers : servers.filter((s) => !hiddenOf(s)), hidden }
 }
 
 /** Тумблер «Скрытые (N)»: показывается, только если есть что скрывать. */
@@ -62,7 +63,7 @@ export function HiddenServersToggle({ count, show, onChange }: { count: number; 
   return (
     <label
       className="text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-1.5 text-xs select-none"
-      title="Серверы со словами «Россия», «авто», «обход», «тест» (и russia, auto, bypass, test) в названии"
+      title="Отключённые серверы. Служебные («Россия», «авто», «обход», «тест») отключаются автоматически"
       onClick={(e) => e.stopPropagation()}
     >
       <IconEyeOff size={14} />
