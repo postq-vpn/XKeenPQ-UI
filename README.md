@@ -68,7 +68,7 @@
 [XKeen](https://github.com/jameszeroX/XKeen). Подключитесь к роутеру по SSH и выполните:
 
 ```sh
-curl -L https://raw.githubusercontent.com/kiloo11/XKeenPQ-UI/main/setup.sh | sh
+curl -L https://raw.githubusercontent.com/postq-vpn/XKeenPQ-UI/main/setup.sh | sh
 ```
 
 В меню выберите нужный пункт:
@@ -85,7 +85,7 @@ curl -L https://raw.githubusercontent.com/kiloo11/XKeenPQ-UI/main/setup.sh | sh
 Бета-версия ставится так:
 
 ```sh
-curl -L https://raw.githubusercontent.com/kiloo11/XKeenPQ-UI/main/setup.sh | sh -s -- beta
+curl -L https://raw.githubusercontent.com/postq-vpn/XKeenPQ-UI/main/setup.sh | sh -s -- beta
 ```
 
 <details>
@@ -93,7 +93,7 @@ curl -L https://raw.githubusercontent.com/kiloo11/XKeenPQ-UI/main/setup.sh | sh 
 <br>
 
 1. Узнайте архитектуру роутера: `opkg print-architecture` (`aarch64` → `arm64-v8a`, `mipsel` → `mips32le`, `mips` → `mips32`).
-2. Скачайте файл `xkeen-ui-<архитектура>` со страницы [релизов](https://github.com/kiloo11/XKeenPQ-UI/releases/latest).
+2. Скачайте файл `xkeen-ui-<архитектура>` со страницы [релизов](https://github.com/postq-vpn/XKeenPQ-UI/releases/latest).
 3. Положите его на роутер в `/opt/tmp/` (например, через SFTP).
 4. Запустите установочный скрипт и выберите пункт `1`: он подхватит файл из `/opt/tmp/`.
 

@@ -297,7 +297,7 @@ async fn main() {
                 let err = std::process::Command::new("sh")
                     .args([
                         "-c",
-                        "curl -L https://raw.githubusercontent.com/kiloo11/XKeenPQ-UI/main/setup.sh | sh",
+                        "curl -L https://raw.githubusercontent.com/postq-vpn/XKeenPQ-UI/main/setup.sh | sh",
                     ])
                     .exec();
                 eprintln!(" {} {}", " Ошибка запуска setup:".red().bold(), err);

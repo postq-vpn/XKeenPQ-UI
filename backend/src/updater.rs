@@ -64,7 +64,7 @@ pub fn valid_repo_url(url: &str) -> bool {
 pub fn get_repo(updater: &UpdaterSettings, core: &str) -> Option<String> {
     let (url, fallback) = match core {
         "xray" => (&updater.xray_repo, "XTLS/Xray-core"),
-        "self" => return Some("kiloo11/XKeenPQ-UI".into()),
+        "self" => return Some("postq-vpn/XKeenPQ-UI".into()),
         _ => return None,
     };
     Some(if valid_repo_url(url) {
@@ -600,7 +600,7 @@ mod tests {
     fn repo_from_settings() {
         let mut s = UpdaterSettings::default();
         assert_eq!(get_repo(&s, "xray").as_deref(), Some("XTLS/Xray-core"));
-        assert_eq!(get_repo(&s, "self").as_deref(), Some("kiloo11/XKeenPQ-UI"));
+        assert_eq!(get_repo(&s, "self").as_deref(), Some("postq-vpn/XKeenPQ-UI"));
 
         s.xray_repo = "https://github.com/someone/xray-fork".into();
         assert_eq!(get_repo(&s, "xray").as_deref(), Some("someone/xray-fork"));

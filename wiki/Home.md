@@ -2,7 +2,7 @@
 
 Ультра-лёгкая и быстрая панель управления для [XKeen](https://github.com/jameszeroX/XKeen) — обёртки Xray-core для роутеров Keenetic. Один самодостаточный бинарь, минимум зависимостей, LAN-доступ через браузер.
 
-![preview](https://github.com/kiloo11/XKeenPQ-UI/blob/main/docs/preview-dark.png?raw=true)
+![preview](https://github.com/postq-vpn/XKeenPQ-UI/blob/main/docs/preview-dark.png?raw=true)
 
 ## Установка
 

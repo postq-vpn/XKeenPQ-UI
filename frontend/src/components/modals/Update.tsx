@@ -20,7 +20,7 @@ const JSDELIVR_API = 'https://data.jsdelivr.com/v1/package/gh'
 const FETCH_TIMEOUT_MS = 5000
 const CORE_REPOS = {
   xray: 'XTLS/Xray-core',
-  self: 'kiloo11/XKeenPQ-UI',
+  self: 'postq-vpn/XKeenPQ-UI',
 } as const
 
 const mdClass = `
