@@ -237,7 +237,7 @@ export function StatusBar({
           {/* Логотип */}
           <div className="order-1 flex items-center justify-center md:absolute md:left-1/2 md:order-2 md:-translate-x-1/2">
             <a
-              href="https://github.com/postq-vpn/XKeenPQ-UI"
+              href="https://postq.space"
               target="_blank"
               rel="noreferrer"
               className="rounded-md transition-opacity hover:opacity-85"
