@@ -233,6 +233,33 @@ pub async fn ensure_default(target: &str) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Переименовывает тег подписки в конфигах (кроме файлов подписок): `"old"` и серверы `"old--…"`
+/// в правилах и балансировщиках. Правка точечная, комментарии и форматирование сохраняются.
+fn rename_in_text(text: &str, old: &str, new: &str) -> String {
+    let exact = Regex::new(&format!(r#""{}(--[^"]*)?""#, regex_lite::escape(old))).unwrap();
+    exact
+        .replace_all(text, |caps: &regex_lite::Captures| format!("\"{new}{}\"", caps.get(1).map_or("", |m| m.as_str())))
+        .into_owned()
+}
+
+pub async fn rename_tag(old: &str, new: &str) -> Result<(), String> {
+    for file in read_conf_files().await.iter().filter(|f| !f.is_subscription()) {
+        let updated = rename_in_text(&file.text, old, new);
+        if updated == file.text {
+            continue;
+        }
+        let tmp = file.path.with_extension("tmp");
+        tokio::fs::write(&tmp, &updated)
+            .await
+            .map_err(|e| format!("ошибка записи {}: {}", tmp.display(), e))?;
+        tokio::fs::rename(&tmp, &file.path)
+            .await
+            .map_err(|e| format!("ошибка записи {}: {}", file.path.display(), e))?;
+        log("INFO", format!("Маршрутизация: тег «{old}» заменён на «{new}» ({})", file.path.display()));
+    }
+    Ok(())
+}
+
 /// Направляет проксируемые правила на `target`. Возвращает true, если routing изменился.
 pub async fn sync(target: &str) -> Result<bool, String> {
     let files = read_conf_files().await;
@@ -281,6 +308,22 @@ pub async fn sync(target: &str) -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rename_in_text_renames_tag_and_servers_only() {
+        let text = r#"{ // правило
+  "outboundTag": "subscription_1",
+  "selector": ["subscription_1--NL", "subscription_10", "x-subscription_1"],
+  "domain": ["subscription_1.example"]
+}"#;
+        let out = rename_in_text(text, "subscription_1", "postq_vpn");
+        assert!(out.contains(r#""outboundTag": "postq_vpn""#));
+        assert!(out.contains(r#""postq_vpn--NL""#));
+        assert!(out.contains(r#""subscription_10""#));
+        assert!(out.contains(r#""x-subscription_1""#));
+        assert!(out.contains(r#""subscription_1.example""#));
+        assert!(out.contains("// правило"));
+    }
 
     #[test]
     fn default_routing_targets_subscription() {

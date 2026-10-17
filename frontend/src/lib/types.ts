@@ -67,6 +67,8 @@ export interface XraySubscription {
   proxy?: boolean
   /** Название от провайдера (profile-title и т.п.), задаёт backend. */
   title?: string
+  /** Тег строится из названия и переименовывается вслед за ним. */
+  auto_tag?: boolean
 }
 
 export type ServiceStatus = 'loading' | 'running' | 'stopped' | 'pending'

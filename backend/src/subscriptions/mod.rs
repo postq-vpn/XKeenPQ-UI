@@ -29,6 +29,8 @@ use tokio::sync::Mutex;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
 /// Фиксированный User-Agent запроса подписки, клиентом не меняется.
 pub const USER_AGENT: &str = "Netcraze";
+/// Платформа устройства для панелей с учётом устройств (Remnawave показывает её как ОС).
+pub const DEVICE_OS: &str = "Router";
 const SCHEDULER_TICK: Duration = Duration::from_secs(60);
 const MAX_RETRY_DELAY: i64 = 900;
 const MIN_INTERVAL: u64 = 60;
@@ -36,6 +38,8 @@ const MIN_INTERVAL: u64 = 60;
 /// Сериализует все изменения хранилища и файлов outbounds (API и планировщик).
 static STORE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 static TAG_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9_-]{1,64}$").unwrap());
+/// Тег по умолчанию из прошлых версий («subscription_N») — считается автоматическим.
+static LEGACY_AUTO_TAG_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^subscription_\d+$").unwrap());
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -68,8 +72,12 @@ pub struct Subscription {
     /// Выбранный сервер (тег). В файл добавляется outbound с тегом подписки — его копия;
     /// на него ссылаются правила маршрутизации. Пусто — первый включённый сервер.
     pub primary: String,
+    /// Тег строится из названия подписки и следует за ним (тег не правили вручную).
+    pub auto_tag: bool,
 
     // Состояние, клиентом не задаётся.
+    /// Название, из которого построен текущий автотег: пока совпадает с `title`, тег не пересчитывается.
+    pub tag_title: String,
     /// Название подписки от провайдера (`profile-title` и т.п.), обновляется при каждой загрузке.
     pub title: String,
     /// Подписка «Для прокси»: проксируемые правила routing направляются на её тег.
@@ -100,6 +108,8 @@ impl Default for Subscription {
             fingerprint: String::new(),
             disabled_servers: vec![],
             primary: String::new(),
+            auto_tag: false,
+            tag_title: String::new(),
             title: String::new(),
             proxy: false,
             last_update: 0,
@@ -162,6 +172,7 @@ impl Subscription {
     /// Переносит состояние из сохранённой версии при редактировании.
     fn keep_status(&mut self, from: &Subscription) {
         self.title = from.title.clone();
+        self.tag_title = from.tag_title.clone();
         self.last_update = from.last_update;
         self.last_attempt = from.last_attempt;
         self.last_error = from.last_error.clone();
@@ -296,6 +307,7 @@ async fn fetch_subscription(state: &AppState, sub: &Subscription) -> Result<Fetc
         .header(reqwest::header::USER_AGENT, USER_AGENT);
     // Модель и версия ОС — только с самого роутера (RCI), вручную не задаются.
     let device = device::router_device(state).await.unwrap_or_default();
+    req = req.header("x-device-os", DEVICE_OS);
     for (name, value) in [
         ("x-hwid", &sub.hwid),
         ("x-ver-os", &device.os_version),
@@ -535,6 +547,57 @@ async fn write_outbounds(tag: &str, outbounds: &[Value]) -> Result<bool, String>
     Ok(true)
 }
 
+impl Subscription {
+    fn is_auto_tag(&self) -> bool {
+        self.auto_tag || LEGACY_AUTO_TAG_RE.is_match(&self.tag)
+    }
+}
+
+/// Переименовывает подписку: теги серверов, выбор/отключения, файл outbounds и ссылки в routing.
+async fn rename_subscription(sub: &mut Subscription, new_tag: &str) -> Result<(), String> {
+    let old = sub.tag.clone();
+    let (old_prefix, new_prefix) = (format!("{old}--"), format!("{new_tag}--"));
+    let move_tag = |t: &str| t.strip_prefix(&old_prefix).map_or_else(|| t.to_string(), |rest| format!("{new_prefix}{rest}"));
+    retag(&mut sub.cached_outbounds, &old, new_tag);
+    sub.disabled_servers = sub.disabled_servers.iter().map(|t| move_tag(t)).collect();
+    sub.primary = move_tag(&sub.primary);
+    sub.tag = new_tag.to_string();
+
+    let enabled = enabled_outbounds(sub, &sub.cached_outbounds)?;
+    write_outbounds(new_tag, &with_active_alias(sub, enabled)).await?;
+    for path in [outbounds_path(&old), legacy_outbounds_path(&old)] {
+        _ = tokio::fs::remove_file(path).await;
+    }
+    routing::rename_tag(&old, new_tag).await?;
+    log("INFO", format!("Подписка «{old}» переименована в «{new_tag}» по названию «{}»", sub.title));
+    Ok(())
+}
+
+/// Автотеги следуют за названием подписки. Проверяется только смена названия: пока оно то же,
+/// теги не сверяются. Возвращает true, если что-то переименовано.
+async fn sync_auto_tags(store: &mut Store) -> bool {
+    let mut changed = false;
+    for i in 0..store.subscriptions.len() {
+        let sub = &store.subscriptions[i];
+        if !sub.is_auto_tag() || sub.title.is_empty() || sub.title == sub.tag_title {
+            continue;
+        }
+        let mut taken = taken_tags(store).await;
+        taken.remove(&store.subscriptions[i].tag);
+        let sub = &mut store.subscriptions[i];
+        let suggested = title::suggest_tag(Some(&sub.title), &sub.url, &taken);
+        if suggested != sub.tag {
+            if let Err(e) = rename_subscription(sub, &suggested).await {
+                log("ERROR", format!("Не удалось переименовать подписку «{}»: {e}", sub.tag));
+                continue;
+            }
+            changed = true;
+        }
+        sub.tag_title = sub.title.clone();
+    }
+    changed
+}
+
 /// Обновляет подписку и её статус. Возвращает true, если файл outbounds изменился.
 async fn refresh(state: &AppState, sub: &mut Subscription) -> Result<bool, String> {
     sub.last_attempt = now();
@@ -642,6 +705,7 @@ pub fn start_scheduler(state: AppState) {
             if !touched {
                 continue;
             }
+            changed |= sync_auto_tags(&mut store).await;
             if let Err(e) = save_store(&store).await {
                 log("ERROR", format!("Ошибка записи {}: {}", SUBSCRIPTIONS_FILE, e));
             }
@@ -824,6 +888,9 @@ pub async fn post_subscription(State(state): State<AppState>, Json(mut sub): Jso
     if let Err(e) = refresh(&state, &mut sub).await {
         return fail(e);
     }
+    if sub.auto_tag {
+        sub.tag_title = sub.title.clone();
+    }
     let first = store.subscriptions.is_empty();
     store.subscriptions.push(sub.clone());
     if let Err(e) = save_store(&store).await {
@@ -852,16 +919,20 @@ pub async fn patch_subscription(State(state): State<AppState>, Json(mut sub): Js
     let Some(existing) = store.subscriptions.iter_mut().find(|s| s.tag == sub.tag) else {
         return fail(format!("Подписка «{}» не найдена", sub.tag));
     };
+    sub.auto_tag = existing.auto_tag;
     sub.keep_status(existing);
     let result = refresh(&state, &mut sub).await;
     *existing = sub.clone();
+    let index = store.subscriptions.iter().position(|s| s.tag == sub.tag).unwrap_or_default();
+    let renamed = sync_auto_tags(&mut store).await;
     if let Err(e) = save_store(&store).await {
         return fail(e);
     }
     match result {
         Ok(changed) => {
-            let restart_error = finish_change(&mut store, changed).await;
-            Json(json!({ "success": true, "subscription": to_api(&sub), "restart_error": restart_error }))
+            let restart_error = finish_change(&mut store, changed || renamed).await;
+            let saved = store.subscriptions.get(index).unwrap_or(&sub);
+            Json(json!({ "success": true, "subscription": to_api(saved), "restart_error": restart_error }))
         }
         Err(e) => fail(format!("Настройки сохранены, но обновить подписку не удалось: {e}")),
     }
@@ -975,6 +1046,7 @@ pub async fn post_refresh(State(state): State<AppState>, Json(req): Json<Refresh
             None => "Нет подписок".into(),
         });
     }
+    changed |= sync_auto_tags(&mut store).await;
     if let Err(e) = save_store(&store).await {
         return fail(e);
     }

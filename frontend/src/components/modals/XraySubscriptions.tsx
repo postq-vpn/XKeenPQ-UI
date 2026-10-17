@@ -45,6 +45,8 @@ import { ActionButton, formatDateTime, formatRelativeTime, formatTraffic, Loadin
 
 /** Подписка всегда запрашивается с этим User-Agent (backend: subscriptions::USER_AGENT). */
 export const XRAY_USER_AGENT = 'Netcraze'
+/** Платформа устройства (backend: subscriptions::DEVICE_OS). */
+export const XRAY_DEVICE_OS = 'Router'
 
 export const CLIENT_FINGERPRINTS = ['chrome', 'firefox', 'safari', 'iOS', 'android', 'edge', '360', 'qq', 'random']
 
@@ -254,9 +256,15 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
   async function save() {
     setBusy('save')
     try {
-      const res = await apiCall<ApiResult & { subscription?: XraySubscription }>(isEdit ? 'PATCH' : 'POST', 'subscriptions', payload)
+      const res = await apiCall<ApiResult & { subscription?: XraySubscription }>(isEdit ? 'PATCH' : 'POST', 'subscriptions', {
+        ...payload,
+        // Тег не правили вручную — он будет следовать за названием подписки.
+        auto_tag: isEdit ? payload.auto_tag : !tagTouched,
+      })
       if (!res.success || !res.subscription) throw new Error(res.error)
-      showToast(`Подписка ${subscriptionTitle(res.subscription)} ${isEdit ? 'сохранена' : 'добавлена'}: серверов ${res.subscription.servers ?? 0}`)
+      showToast(
+        `Подписка ${subscriptionTitle(res.subscription)} ${isEdit ? 'сохранена' : 'добавлена'}: серверов ${res.subscription.servers ?? 0}`
+      )
       if (res.restart_error) showToast(`Не удалось перезапустить Xray: ${res.restart_error}`, 'error')
       onSaved(res.subscription)
     } catch (e: any) {
@@ -435,7 +443,14 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <div className="grid gap-1.5">
+                    <div className="flex items-center gap-1">
+                      <Label className="text-xs">x-device-os</Label>
+                      <HintIcon>Платформа устройства, для роутера всегда Router.</HintIcon>
+                    </div>
+                    <Input value={XRAY_DEVICE_OS} readOnly disabled className="h-8 text-xs" />
+                  </div>
                   <div className="grid gap-1.5">
                     <div className="flex items-center gap-1">
                       <Label className="text-xs">x-device-model</Label>
@@ -700,12 +715,10 @@ export function XrayServerPicker({ sub, onDone, onSkip }: PickerProps) {
   const [saving, setSaving] = useState(false)
   const enabledServers = useMemo(() => (sub.server_list ?? []).filter((s) => !s.disabled), [sub])
   const [showHidden, setShowHidden] = useShowHiddenServers()
-  const { visible: servers, hidden: hiddenCount } = filterHiddenServers(
-    enabledServers,
-    (s) => serverName(sub, s.tag),
-    showHidden,
-    [selected, sub.primary]
-  )
+  const { visible: servers, hidden: hiddenCount } = filterHiddenServers(enabledServers, (s) => serverName(sub, s.tag), showHidden, [
+    selected,
+    sub.primary,
+  ])
   const pinging = Object.values(results).some((r) => r.loading)
 
   async function runPing() {
@@ -1058,20 +1071,22 @@ export function XraySubscriptionsModal({ open, onOpenChange, onChanged, onAddNew
         const active = activeServerTag(sub)
         return (
           <div key={sub.tag}>
-            <div className="border-border bg-muted/30 sticky top-0 z-10 flex items-center gap-2 border-b px-4 py-1.5 text-xs backdrop-blur-sm">
-              <span className="font-medium">{subscriptionTitle(sub)}</span>
-              {sub.title && <span className="text-muted-foreground font-mono">{sub.tag}</span>}
-              {sub.proxy && <ProxyBadge />}
-              <ProviderBadge>{all.length ? `${enabledCount}/${all.length}` : serversBadge(sub)}</ProviderBadge>
-              {sub.last_error && (
-                <Tooltip>
-                  <TooltipTrigger render={<span className="cursor-help text-red-400" />}>ошибка обновления</TooltipTrigger>
-                  <TooltipContent className="max-w-sm break-words">{sub.last_error}</TooltipContent>
-                </Tooltip>
-              )}
-              {busy && <Spinner className="size-3.5" />}
-              <div className="ml-auto flex items-center gap-1">
-                <HiddenServersToggle count={hidden} show={showHidden} onChange={setShowHidden} />
+            <div className="border-border bg-muted/30 sticky top-0 z-10 grid grid-cols-[1fr_auto_1fr] items-center gap-2 border-b px-4 py-1.5 text-xs backdrop-blur-sm">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate font-medium">{subscriptionTitle(sub)}</span>
+                {sub.title && <span className="text-muted-foreground font-mono">{sub.tag}</span>}
+                {sub.proxy && <ProxyBadge />}
+                <ProviderBadge>{all.length ? `${enabledCount}/${all.length}` : serversBadge(sub)}</ProviderBadge>
+                {sub.last_error && (
+                  <Tooltip>
+                    <TooltipTrigger render={<span className="cursor-help text-red-400" />}>ошибка обновления</TooltipTrigger>
+                    <TooltipContent className="max-w-sm break-words">{sub.last_error}</TooltipContent>
+                  </Tooltip>
+                )}
+                {busy && <Spinner className="size-3.5" />}
+              </div>
+              <HiddenServersToggle count={hidden} show={showHidden} onChange={setShowHidden} />
+              <div className="flex items-center justify-end gap-1">
                 <Button variant="ghost" size="xs" disabled={all.length === 0} onClick={() => void ping(all)}>
                   <IconRefresh /> Пинг
                 </Button>
