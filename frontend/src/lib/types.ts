@@ -49,6 +49,8 @@ export interface XraySubscription {
   interval: number
   /** Обязателен: без него панель не отдаёт подписку. */
   hwid: string
+  /** HWID привязан к роутеру (серийный номер или MAC) — вручную не меняется. */
+  hwid_locked?: boolean
   filter: string
   exclude_filter: string
   exclude_type: string

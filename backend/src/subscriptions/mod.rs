@@ -897,6 +897,7 @@ fn to_api(sub: &Subscription) -> Value {
             .map(|o| server_summary(sub, o))
             .collect();
         obj.insert("server_list".into(), json!(servers));
+        obj.insert("hwid_locked".into(), json!(device::is_locked(&sub.hwid, &sub.url)));
     }
     value
 }
@@ -932,7 +933,8 @@ pub async fn get_routing_status() -> impl IntoResponse {
     Json(json!({ "success": true, "pending": pending, "missing": missing, "assets_dir": XRAY_ASSET_DIR }))
 }
 
-pub async fn get_subscriptions() -> impl IntoResponse {
+pub async fn get_subscriptions(State(state): State<AppState>) -> impl IntoResponse {
+    device::init_router_key(&state).await;
     Json(json!({ "success": true, "subscriptions": list_to_api(&load_store().await.subscriptions) }))
 }
 
@@ -983,7 +985,7 @@ pub async fn post_preview(State(state): State<AppState>, Json(req): Json<Preview
     }
     // Новая подписка: HWID от роутера; он возвращается в ответе, чтобы сохранение шло с ним же
     if sub.hwid.is_empty() {
-        sub.hwid = device::new_hwid(&state, &sub.url).await;
+        sub.hwid = device::new_hwid(&state).await;
     }
     if let Err(e) = sub.validate() {
         return fail(e);
@@ -1024,8 +1026,11 @@ pub async fn post_preview(State(state): State<AppState>, Json(req): Json<Preview
 pub async fn post_subscription(State(state): State<AppState>, Json(mut sub): Json<Subscription>) -> impl IntoResponse {
     sub.normalize();
     sub.reset_status();
-    if sub.hwid.is_empty() {
-        sub.hwid = device::new_hwid(&state, &sub.url).await;
+    // HWID, привязанный к роутеру, задаёт роутер — присланное значение не принимается
+    if let Some(hwid) = device::bound_hwid(&state).await {
+        sub.hwid = hwid;
+    } else if sub.hwid.is_empty() {
+        sub.hwid = device::new_hwid(&state).await;
     }
     if let Err(e) = sub.validate() {
         return fail(e);
@@ -1105,6 +1110,11 @@ pub async fn patch_subscription(State(state): State<AppState>, Json(mut sub): Js
     let Some(existing) = store.subscriptions.iter_mut().find(|s| s.tag == sub.tag) else {
         return fail(format!("Подписка «{}» не найдена", sub.tag));
     };
+    // Привязанный к роутеру HWID вручную не меняется, в том числе при смене ссылки
+    device::init_router_key(&state).await;
+    if device::is_locked(&existing.hwid, &existing.url) {
+        sub.hwid = existing.hwid.clone();
+    }
     sub.auto_tag = existing.auto_tag;
     sub.keep_status(existing);
     let result = refresh(&state, &mut sub).await;

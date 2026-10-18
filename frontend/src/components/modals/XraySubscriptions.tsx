@@ -385,23 +385,28 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
                       <Label className="text-xs">
                         x-hwid<span className="text-destructive"> *</span>
                       </Label>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={() => update('hwid', randomHwid())}
-                        className="size-4"
-                        aria-label="Новый x-hwid"
-                      >
-                        <IconRefresh className="size-3" />
-                      </Button>
+                      {!form.hwid_locked && (
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          onClick={() => update('hwid', randomHwid())}
+                          className="size-4"
+                          aria-label="Новый x-hwid"
+                        >
+                          <IconRefresh className="size-3" />
+                        </Button>
+                      )}
                       <HintIcon>
-                        Обязательный идентификатор устройства: без него панель не отдаст подписку. Если его поменять, роутер займёт ещё один
-                        слот в лимите устройств.
+                        {form.hwid_locked
+                          ? 'Привязан к роутеру: получен из его серийного номера или MAC и не меняется — ни при повторном добавлении подписки, ни при смене её ссылки. Новый слот в лимите устройств не займётся.'
+                          : 'Обязательный идентификатор устройства: без него панель не отдаст подписку. Если его поменять, роутер займёт ещё один слот в лимите устройств.'}
                       </HintIcon>
                     </div>
                     <Input
                       value={form.hwid}
                       onChange={(e) => update('hwid', e.target.value)}
+                      readOnly={form.hwid_locked}
+                      disabled={form.hwid_locked}
                       aria-invalid={!form.hwid.trim()}
                       placeholder="Нажмите ↻, чтобы сгенерировать"
                       className="h-8 font-mono text-xs"
