@@ -798,10 +798,11 @@ pub fn start_scheduler(state: AppState) {
         loop {
             tokio::time::sleep(SCHEDULER_TICK).await;
             // Геобазы качаются без блокировки подписок: загрузка может идти минуту и дольше.
+            // Если геобазы уже обновляет задача XKeen (`xkeen -ug` в cron), второй раз их не качаем.
             let geo_due = {
                 let store = load_store().await;
                 store.geo_auto_update && now() - store.geo_last_update >= geo_files::GEO_UPDATE_INTERVAL
-            };
+            } && !geo_files::xkeen_updates_geo().await;
             let geo_updated = if geo_due {
                 let (updated, errors) = geo_files::download_geo_files(&state, false).await;
                 for e in &errors {

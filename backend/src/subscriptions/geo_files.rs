@@ -43,6 +43,9 @@ async fn fetch(client: &reqwest::Client, url: &str, proxies: &[String]) -> Resul
 /// Скачивает геобазы шаблона в `XRAY_ASSET_DIR`. `only_missing` — только отсутствующие.
 /// Возвращает (обновлённые файлы, ошибки).
 pub(super) async fn download_geo_files(state: &AppState, only_missing: bool) -> (Vec<String>, Vec<String>) {
+    // Кнопка и автообновление не должны писать одни и те же .tmp одновременно
+    static GEO_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _guard = GEO_LOCK.lock().await;
     let proxies = state.settings.read().unwrap().updater.github_proxy.clone();
     let dir = std::path::Path::new(XRAY_ASSET_DIR);
     if let Err(e) = tokio::fs::create_dir_all(dir).await {
@@ -61,27 +64,50 @@ pub(super) async fn download_geo_files(state: &AppState, only_missing: bool) -> 
                 continue;
             }
         };
-        if tokio::fs::read(&path).await.is_ok_and(|old| old == data) {
-            continue;
-        }
-        let tmp = path.with_extension("dat.tmp");
-        let written = async {
-            tokio::fs::write(&tmp, &data).await?;
-            tokio::fs::rename(&tmp, &path).await
-        }
-        .await;
-        match written {
-            Ok(()) => {
+        match write_geo_file(&path, &data).await {
+            Ok(false) => {}
+            Ok(true) => {
                 log("INFO", format!("Геобаза {name} обновлена ({:.1} МБ)", data.len() as f64 / 1048576.0));
                 updated.push(name.to_string());
             }
-            Err(e) => {
-                _ = tokio::fs::remove_file(&tmp).await;
-                errors.push(format!("{name}: {e}"));
-            }
+            Err(e) => errors.push(format!("{name}: {e}")),
         }
     }
     (updated, errors)
+}
+
+/// Атомарно записывает геобазу; false — содержимое не изменилось. XKeen держит `zkeen.dat` и
+/// `zkeenip.dat` симлинками на `geosite_zkeen.dat`/`geoip_zkeenip.dat` (или наоборот): пишем в цель
+/// ссылки, иначе rename заменил бы симлинк копией, а XKeen при `-ug` вернул бы его обратно.
+async fn write_geo_file(path: &std::path::Path, data: &[u8]) -> std::io::Result<bool> {
+    let target = tokio::fs::canonicalize(path).await.unwrap_or_else(|_| path.to_path_buf());
+    if tokio::fs::read(&target).await.is_ok_and(|old| old == data) {
+        return Ok(false);
+    }
+    let tmp = target.with_extension("dat.tmp");
+    let written = async {
+        tokio::fs::write(&tmp, data).await?;
+        tokio::fs::rename(&tmp, &target).await
+    }
+    .await;
+    if written.is_err() {
+        _ = tokio::fs::remove_file(&tmp).await;
+    }
+    written.map(|()| true)
+}
+
+/// Задача планировщика XKeen (`xkeen -ug`), которая уже обновляет геобазы: тогда панель их не качает.
+const XKEEN_CRONTAB: &str = "/opt/var/spool/cron/crontabs/root";
+
+fn crontab_updates_geo(crontab: &str) -> bool {
+    crontab.lines().map(str::trim).filter(|line| !line.starts_with('#')).any(|line| {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        words.windows(2).any(|w| w[0].ends_with("/xkeen") && w[1] == "-ug")
+    })
+}
+
+pub(super) async fn xkeen_updates_geo() -> bool {
+    tokio::fs::read_to_string(XKEEN_CRONTAB).await.is_ok_and(|c| crontab_updates_geo(&c))
 }
 
 /// Кнопка в предупреждении: скачать недостающие геобазы, включить их автообновление и,
@@ -113,6 +139,38 @@ pub async fn post_geo_download(State(state): State<AppState>) -> impl IntoRespon
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn crontab_detection() {
+        assert!(crontab_updates_geo("15 3 * * 1 /opt/sbin/xkeen -ug\n"));
+        assert!(crontab_updates_geo("# комментарий\n0 4 * * 1 /opt/sbin/xkeen -ug >/dev/null 2>&1"));
+        assert!(!crontab_updates_geo("# 15 3 * * 1 /opt/sbin/xkeen -ug"));
+        assert!(!crontab_updates_geo("55 4 * * 2 /opt/sbin/xkeen -uk auto"));
+        assert!(!crontab_updates_geo("15 3 * * 1 /opt/sbin/xkeen -ugc"));
+        assert!(!crontab_updates_geo(""));
+    }
+
+    #[tokio::test]
+    async fn write_goes_through_symlink() {
+        let dir = std::env::temp_dir().join(format!("geo-symlink-{}", std::process::id()));
+        _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("geosite_zkeen.dat");
+        let link = dir.join("zkeen.dat");
+        std::fs::write(&target, b"old").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        assert!(write_geo_file(&link, b"new").await.unwrap());
+        assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink(), "ссылка должна остаться ссылкой");
+        assert_eq!(std::fs::read(&target).unwrap(), b"new");
+        assert!(!write_geo_file(&link, b"new").await.unwrap(), "одинаковое содержимое не перезаписывается");
+
+        let plain = dir.join("geosite_v2fly.dat");
+        assert!(write_geo_file(&plain, b"fresh").await.unwrap());
+        assert_eq!(std::fs::read(&plain).unwrap(), b"fresh");
+        assert!(std::fs::read_dir(&dir).unwrap().all(|e| !e.unwrap().file_name().to_string_lossy().ends_with(".tmp")));
+        _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn sources_cover_default_routing_assets() {
