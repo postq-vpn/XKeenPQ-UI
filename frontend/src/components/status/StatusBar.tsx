@@ -236,12 +236,7 @@ export function StatusBar({
 
           {/* Логотип */}
           <div className="order-1 flex items-center justify-center md:absolute md:left-1/2 md:order-2 md:-translate-x-1/2">
-            <a
-              href="https://postq.space"
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-md transition-opacity hover:opacity-85"
-            >
+            <a href="https://postq.space" target="_blank" rel="noreferrer" className="rounded-md transition-opacity hover:opacity-85">
               <BrandLogo className="text-[22px]" />
             </a>
           </div>
@@ -262,8 +257,8 @@ export function StatusBar({
                       )}
                       {isOutdatedCore && (
                         <span className="relative mb-3 -ml-0.75 flex">
-                          <span className="absolute inline-flex size-full animate-ping rounded-full bg-blue-400 opacity-75" />
-                          <span className="relative inline-flex size-1.75 rounded-full bg-blue-500" />
+                          <span className="bg-chart-2 absolute inline-flex size-full animate-ping rounded-full opacity-75" />
+                          <span className="bg-chart-2 relative inline-flex size-1.75 rounded-full" />
                         </span>
                       )}
                     </Button>
@@ -284,16 +279,19 @@ export function StatusBar({
                       disabled={isPending}
                       className={cn(
                         'relative overflow-hidden text-xs tracking-wider',
-                        isOutdatedUI ? 'border-none! text-cyan-300 hover:text-cyan-300' : ''
+                        isOutdatedUI && 'text-chart-2 hover:text-chart-2 border-none!'
                       )}
                     >
-                      {isOutdatedUI && <ShineBorder duration={7} borderWidth={2} shineColor={['#00D3F2', '#2B7FFF', '#155DFC']} />}
+                      {isOutdatedUI && (
+                        // Фирменные цвета темы: в светлой и тёмной теме переменные разные.
+                        <ShineBorder duration={7} borderWidth={1.5} shineColor={['var(--chart-2)', 'var(--primary)', 'var(--chart-2)']} />
+                      )}
                       <IconBox data-icon="inline-start" className="size-4.5" />
                       {version}
                     </Button>
                   }
                 />
-                <TooltipContent>{isOutdatedUI ? 'Доступно обновление' : 'Версия XKeen UI'}</TooltipContent>
+                <TooltipContent>{isOutdatedUI ? 'Доступно обновление — нажмите, чтобы установить' : 'Версия XKeen UI'}</TooltipContent>
               </Tooltip>
             )}
             {isConfigsLoading || !version ? (
@@ -328,7 +326,6 @@ export function StatusBar({
           </div>
         </div>
       </TooltipProvider>
-
     </>
   )
 }
