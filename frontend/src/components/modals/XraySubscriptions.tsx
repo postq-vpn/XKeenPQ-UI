@@ -89,7 +89,8 @@ export function createXraySubscription(url: string, existingTags: string[] = [])
     tag: `subscription_${idx}`,
     url,
     interval: 43200,
-    hwid: randomHwid(),
+    // Пустой — роутер подставит свой постоянный HWID: повторное добавление не займёт новый слот
+    hwid: '',
     filter: '',
     exclude_filter: '',
     exclude_type: '',

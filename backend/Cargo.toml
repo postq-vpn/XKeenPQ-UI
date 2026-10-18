@@ -49,6 +49,7 @@ urlencoding = "2.1"
 uuid = { version = "1", features = ["v4"] }
 zip = { version = "8", default-features = false, features = ["deflate"] }
 semver = "1.0.28"
+sha2 = "0.11"
 
 [dev-dependencies]
 # Только для тестов (idle_cache.rs): tokio::time::pause/advance и #[tokio::test(start_paused = true)].

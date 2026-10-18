@@ -65,15 +65,21 @@ export function ImportModal({ onGenerate, onAddToConfig, onSubscriptionSaved, we
   async function addSubscription(draft: XraySubscription) {
     setAdding(true)
     try {
-      const preview = await apiCall<ApiResult & { title?: string; suggested_tag?: string }>('POST', 'subscriptions/preview', {
-        ...draft,
-        auto_tag: true,
-      })
+      const preview = await apiCall<ApiResult & { title?: string; suggested_tag?: string; hwid?: string }>(
+        'POST',
+        'subscriptions/preview',
+        {
+          ...draft,
+          auto_tag: true,
+        }
+      )
       if (!preview.success) throw new Error(preview.error || 'Не удалось получить подписку')
       const res = await apiCall<ApiResult & { subscription?: XraySubscription }>('POST', 'subscriptions', {
         ...draft,
         tag: preview.suggested_tag || draft.tag,
         title: preview.title ?? '',
+        // тот же HWID, с которым роутер только что скачал подписку
+        hwid: preview.hwid || draft.hwid,
         auto_tag: true,
       })
       if (!res.success || !res.subscription) throw new Error(res.error || 'Не удалось добавить подписку')

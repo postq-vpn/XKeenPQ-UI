@@ -981,6 +981,10 @@ pub async fn post_preview(State(state): State<AppState>, Json(req): Json<Preview
     if sub.tag.is_empty() {
         sub.tag = "preview".into();
     }
+    // Новая подписка: HWID от роутера; он возвращается в ответе, чтобы сохранение шло с ним же
+    if sub.hwid.is_empty() {
+        sub.hwid = device::new_hwid(&state, &sub.url).await;
+    }
     if let Err(e) = sub.validate() {
         return fail(e);
     }
@@ -1005,6 +1009,7 @@ pub async fn post_preview(State(state): State<AppState>, Json(req): Json<Preview
                 "userinfo": fetched.userinfo,
                 "title": fetched.title,
                 "suggested_tag": suggested_tag,
+                "hwid": sub.hwid,
             }))
         }
         Err(e) => fail(e),
@@ -1019,6 +1024,9 @@ pub async fn post_preview(State(state): State<AppState>, Json(req): Json<Preview
 pub async fn post_subscription(State(state): State<AppState>, Json(mut sub): Json<Subscription>) -> impl IntoResponse {
     sub.normalize();
     sub.reset_status();
+    if sub.hwid.is_empty() {
+        sub.hwid = device::new_hwid(&state, &sub.url).await;
+    }
     if let Err(e) = sub.validate() {
         return fail(e);
     }
