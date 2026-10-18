@@ -5,10 +5,12 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { copyText } from '@/lib/utils'
 import { IconCheck, IconCopy, IconLink, IconPlus, IconX } from '@tabler/icons-react'
 import { useState } from 'react'
+import { apiCall } from '../../lib/api'
 import { useAppContext, useModalContext } from '../../lib/store'
 import type { XraySubscription } from '../../lib/types'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '../ui/input-group'
-import { createXraySubscription, XraySubscriptionEditor } from './XraySubscriptions'
+import { Spinner } from '@/components/ui/spinner'
+import { createXraySubscription } from './XraySubscriptions'
 
 function highlightJson(code: string): string {
   return code
@@ -21,6 +23,8 @@ function highlightJson(code: string): string {
     .replace(/:\s*(\d+\.?\d*)/g, ': <span style="color:#ff9e64">$1</span>')
     .replace(/:\s*(true|false|null)/g, ': <span style="color:#bb9af7">$1</span>')
 }
+
+type ApiResult = { success: boolean; error?: string; restart_error?: string }
 
 const SUPPORTED_PROTOCOLS = ['ss://', 'vless://', 'vmess://', 'hysteria2://', 'hy2://', 'http://', 'https://', 'trojan://']
 
@@ -39,13 +43,43 @@ export function ImportModal({ onGenerate, onAddToConfig, onSubscriptionSaved, we
   const [uri, setUri] = useState('')
   const [result, setResult] = useState<{ content: string; protocol: string } | null>(null)
   const [copied, setCopied] = useState(false)
-  const [xraySub, setXraySub] = useState<XraySubscription | null>(null)
+  const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
 
   const isValidUri = SUPPORTED_PROTOCOLS.some((p) => uri.toLowerCase().startsWith(p))
 
   function reset() {
     setResult(null)
-    setXraySub(null)
+    setAddError(null)
+  }
+
+  /**
+   * Подписка добавляется в фоне, без окна настроек: загружаем её, чтобы взять название
+   * и тег у провайдера, и сохраняем. Настройки потом меняются кнопкой ✎ у подписки.
+   */
+  async function addSubscription(draft: XraySubscription) {
+    setAdding(true)
+    try {
+      const preview = await apiCall<ApiResult & { title?: string; suggested_tag?: string }>('POST', 'subscriptions/preview', {
+        ...draft,
+        auto_tag: true,
+      })
+      if (!preview.success) throw new Error(preview.error || 'Не удалось получить подписку')
+      const res = await apiCall<ApiResult & { subscription?: XraySubscription }>('POST', 'subscriptions', {
+        ...draft,
+        tag: preview.suggested_tag || draft.tag,
+        title: preview.title ?? '',
+        auto_tag: true,
+      })
+      if (!res.success || !res.subscription) throw new Error(res.error || 'Не удалось добавить подписку')
+      if (res.restart_error) showToast(`Не удалось перезапустить Xray: ${res.restart_error}`, 'error')
+      close()
+      onSubscriptionSaved(res.subscription)
+    } catch (e: any) {
+      setAddError(e.message)
+    } finally {
+      setAdding(false)
+    }
   }
 
   function close() {
@@ -65,7 +99,7 @@ export function ImportModal({ onGenerate, onAddToConfig, onSubscriptionSaved, we
       const existingTags = state.configs
         .map((c) => c.file.match(/04_outbounds(?:_sub)?\.([\w-]+)\.json$/)?.[1])
         .filter((t): t is string => !!t)
-      setXraySub(createXraySubscription(trimmed, existingTags))
+      void addSubscription(createXraySubscription(trimmed, existingTags))
       return
     }
 
@@ -112,20 +146,6 @@ export function ImportModal({ onGenerate, onAddToConfig, onSubscriptionSaved, we
           </DialogHeader>
 
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-            {xraySub && (
-              <div className="border-border bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
-                <XraySubscriptionEditor
-                  key={xraySub.url}
-                  initial={xraySub}
-                  isEdit={false}
-                  onSaved={(saved) => {
-                    close()
-                    onSubscriptionSaved(saved)
-                  }}
-                />
-              </div>
-            )}
-
             {result && (
               <div className="border-border bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
                 <div className="border-border bg-muted/30 flex w-full shrink-0 items-center justify-between border-b px-3 py-1">
@@ -177,7 +197,8 @@ export function ImportModal({ onGenerate, onAddToConfig, onSubscriptionSaved, we
                 <InputGroupInput
                   value={uri}
                   onChange={(e) => setUri(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && isValidUri && generate()}
+                  onKeyDown={(e) => e.key === 'Enter' && isValidUri && !adding && generate()}
+                  disabled={adding}
                   placeholder="https://..."
                   className={uri ? 'pr-7' : ''}
                 />
@@ -198,8 +219,18 @@ export function ImportModal({ onGenerate, onAddToConfig, onSubscriptionSaved, we
                 </InputGroupAddon>
               </InputGroup>
 
-              <Button onClick={generate} disabled={!isValidUri} className="w-full">
-                {/^https?:\/\//i.test(uri.trim()) || (welcome && !uri.trim()) ? 'Продолжить' : 'Сгенерировать'}
+              {addError && <p className="text-destructive text-xs break-words">{addError}</p>}
+
+              <Button onClick={generate} disabled={!isValidUri || adding} className="w-full">
+                {adding ? (
+                  <>
+                    <Spinner className="size-4" /> Загружаю подписку…
+                  </>
+                ) : /^https?:\/\//i.test(uri.trim()) || (welcome && !uri.trim()) ? (
+                  'Продолжить'
+                ) : (
+                  'Сгенерировать'
+                )}
               </Button>
             </div>
           </div>

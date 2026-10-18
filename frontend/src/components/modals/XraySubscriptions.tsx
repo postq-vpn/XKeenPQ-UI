@@ -22,6 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   IconAlertCircle,
+  IconAlertTriangle,
   IconDatabase,
   IconDeviceFloppy,
   IconInfoCircle,
@@ -31,11 +32,11 @@ import {
   IconTrash,
 } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { apiCall } from '../../lib/api'
 import { useAppActions } from '../../lib/store'
 import type { ProxySubscriptionInfo, XraySubscription, XraySubscriptionServer } from '../../lib/types'
-import { withoutAutoServers } from './AutoServers'
+import { isNotRecommended, splitRecommended, withoutAutoServers } from './AutoServers'
 import { ActionButton, formatDateTime, formatTraffic, LoadingTable, ProviderBadge } from './SubscriptionTableParts'
 
 /** Подписка всегда запрашивается с этим User-Agent (backend: subscriptions::USER_AGENT). */
@@ -562,6 +563,16 @@ function SubscriptionExpiry({ expire }: { expire: number }) {
   )
 }
 
+/** Плашка на всю ширину перед российскими серверами в конце списка (см. `isNotRecommended`). */
+function NotRecommendedLabel() {
+  return (
+    <div className="flex w-full items-center gap-2 border-y border-orange-500/25 bg-orange-500/10 px-4 py-1.5 text-xs font-medium text-orange-700 dark:text-orange-400">
+      <IconAlertTriangle className="size-3.5 shrink-0" />
+      Не рекомендуется — медленнее остальных
+    </div>
+  )
+}
+
 export function PingBadge({ result }: { result?: PingResult }) {
   if (!result) return null
   if (result.loading) return <Spinner className="size-3.5 shrink-0" />
@@ -600,13 +611,18 @@ export function XrayServerPicker({ sub, onDone, onSkip }: PickerProps) {
   const { results, ping } = usePing()
   const [selected, setSelected] = useState(sub.primary)
   const [saving, setSaving] = useState(false)
-  const servers = useMemo(() => withoutAutoServers(sub.server_list), [sub])
+  // Российские серверы — в конце, под плашкой «Не рекомендуется».
+  const { recommended, notRecommended } = useMemo(() => splitRecommended(withoutAutoServers(sub.server_list)), [sub])
+  const servers = useMemo(() => [...recommended, ...notRecommended], [recommended, notRecommended])
   const pinging = Object.values(results).some((r) => r.loading)
 
   async function runPing() {
     const res = await ping(servers)
     if (sub.primary) return
-    const fastest = servers.filter((s) => res[s.tag]?.ms != null).sort((a, b) => (res[a.tag]!.ms as number) - (res[b.tag]!.ms as number))[0]
+    // Самый быстрый среди рекомендуемых; российские — только если других нет.
+    const byPing = (list: XraySubscriptionServer[]) =>
+      list.filter((s) => res[s.tag]?.ms != null).sort((a, b) => (res[a.tag]!.ms as number) - (res[b.tag]!.ms as number))[0]
+    const fastest = byPing(recommended) ?? byPing(notRecommended)
     setSelected((prev) => prev || fastest?.tag || servers[0]?.tag || '')
   }
 
@@ -645,23 +661,25 @@ export function XrayServerPicker({ sub, onDone, onSkip }: PickerProps) {
       <div className="bg-input-background min-h-0 flex-1 overflow-auto">
         {servers.length === 0 && <div className="text-muted-foreground p-4 text-xs">Список серверов ещё не получен</div>}
         <RadioGroup value={selected} onValueChange={setSelected} className="gap-0">
-          {servers.map((s) => (
-            <div
-              key={s.tag}
-              className={cn(
-                'border-border/50 hover:bg-muted/30 flex cursor-pointer items-center gap-3 border-b px-3 py-2 text-[13px] last:border-b-0',
-                s.tag === selected && 'bg-muted/30'
-              )}
-              onClick={() => setSelected(s.tag)}
-            >
-              <RadioGroupItem value={s.tag} aria-label={serverName(sub, s.tag)} />
-              <span className="truncate font-medium">{serverName(sub, s.tag)}</span>
-              <span className="ml-auto flex shrink-0 items-center gap-3">
-                <span className="w-16 text-right">
-                  <PingBadge result={results[s.tag]} />
+          {servers.map((s, i) => (
+            <Fragment key={s.tag}>
+              {i === recommended.length && <NotRecommendedLabel />}
+              <div
+                className={cn(
+                  'border-border/50 hover:bg-muted/30 flex cursor-pointer items-center gap-3 border-b px-3 py-2 text-[13px] last:border-b-0',
+                  s.tag === selected && 'bg-muted/30'
+                )}
+                onClick={() => setSelected(s.tag)}
+              >
+                <RadioGroupItem value={s.tag} aria-label={serverName(sub, s.tag)} />
+                <span className="truncate font-medium">{serverName(sub, s.tag)}</span>
+                <span className="ml-auto flex shrink-0 items-center gap-3">
+                  <span className="w-16 text-right">
+                    <PingBadge result={results[s.tag]} />
+                  </span>
                 </span>
-              </span>
-            </div>
+              </div>
+            </Fragment>
           ))}
         </RadioGroup>
       </div>
@@ -798,8 +816,9 @@ export function XraySubscriptionsModal({
   const serverGroups = useMemo(
     () =>
       subs.map((sub) => {
-        const servers = withoutAutoServers(sub.server_list)
-        return { sub, servers }
+        // Российские серверы — в конце, под плашкой «Не рекомендуется».
+        const { recommended, notRecommended } = splitRecommended(withoutAutoServers(sub.server_list))
+        return { sub, servers: [...recommended, ...notRecommended] }
       }),
     [subs]
   )
@@ -936,29 +955,35 @@ export function XraySubscriptionsModal({
               <div className="text-muted-foreground px-4 py-2 text-xs">Список серверов ещё не получен — обновите подписку</div>
             )}
             <RadioGroup value={active} onValueChange={(tag) => void selectServer(sub, tag)} disabled={busy} className="gap-0">
-              {servers.map((s) => {
+              {servers.map((s, i) => {
                 const isActive = s.tag === active
+                const firstNotRecommended = isNotRecommended(s) && (i === 0 || !isNotRecommended(servers[i - 1]))
                 return (
-                  <div
-                    key={s.tag}
-                    className={cn(
-                      'border-border/50 hover:bg-muted/30 flex items-center gap-3 border-b px-4 py-1.5 text-[13px] last:border-b-0',
-                      busy ? 'cursor-default' : 'cursor-pointer',
-                      isActive && 'bg-muted/30'
-                    )}
-                    onClick={() => !busy && void selectServer(sub, s.tag)}
-                  >
-                    <RadioGroupItem value={s.tag} disabled={busy} aria-label={`Выбрать ${serverName(sub, s.tag)}`} />
-                    <span className="truncate font-medium">{serverName(sub, s.tag)}</span>
-                    {isActive && !sub.primary && (
-                      <span className="text-muted-foreground shrink-0 text-[11px]" title="Сервер не выбран — используется первый в списке">
-                        авто
+                  <Fragment key={s.tag}>
+                    {firstNotRecommended && <NotRecommendedLabel />}
+                    <div
+                      className={cn(
+                        'border-border/50 hover:bg-muted/30 flex items-center gap-3 border-b px-4 py-1.5 text-[13px] last:border-b-0',
+                        busy ? 'cursor-default' : 'cursor-pointer',
+                        isActive && 'bg-muted/30'
+                      )}
+                      onClick={() => !busy && void selectServer(sub, s.tag)}
+                    >
+                      <RadioGroupItem value={s.tag} disabled={busy} aria-label={`Выбрать ${serverName(sub, s.tag)}`} />
+                      <span className="truncate font-medium">{serverName(sub, s.tag)}</span>
+                      {isActive && !sub.primary && (
+                        <span
+                          className="text-muted-foreground shrink-0 text-[11px]"
+                          title="Сервер не выбран — используется первый в списке"
+                        >
+                          авто
+                        </span>
+                      )}
+                      <span className="ml-auto w-16 shrink-0 text-right">
+                        <PingBadge result={pings[s.tag]} />
                       </span>
-                    )}
-                    <span className="ml-auto w-16 shrink-0 text-right">
-                      <PingBadge result={pings[s.tag]} />
-                    </span>
-                  </div>
+                    </div>
+                  </Fragment>
                 )
               })}
             </RadioGroup>
