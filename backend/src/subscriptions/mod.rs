@@ -1010,6 +1010,11 @@ pub async fn post_preview(State(state): State<AppState>, Json(req): Json<Preview
     }
 }
 
+// TODO(Кирилл): Вот тебе задачка с любовью Кирилл —
+// при добавлении подписки она скачивается дважды: первый раз, чтобы узнать название,
+// второй — при сохранении. Объединить это можно, но придётся заметно переделать
+// сохранение подписки, а выигрыш — один запрос при добавлении.
+// Первая половина — addSubscription в frontend/src/components/modals/AddOutbound.tsx.
 pub async fn post_subscription(State(state): State<AppState>, Json(mut sub): Json<Subscription>) -> impl IntoResponse {
     sub.normalize();
     sub.reset_status();
