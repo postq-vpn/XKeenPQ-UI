@@ -4,7 +4,17 @@ import { Empty, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { IconChevronDown, IconFile, IconFilter, IconMaximize, IconMinimize, IconPlus, IconTrash, IconX } from '@tabler/icons-react'
+import {
+  IconChevronDown,
+  IconDownload,
+  IconFile,
+  IconFilter,
+  IconMaximize,
+  IconMinimize,
+  IconPlus,
+  IconTrash,
+  IconX,
+} from '@tabler/icons-react'
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { LOCAL_ROUTER_ID, isRouterSelectable, routerId } from '../../lib/multi-routers/model'
@@ -395,6 +405,21 @@ export function LogPanel({ asPage, headerExtra }: LogPanelProps = {}) {
                     </SelectContent>
                   </Select>
                   <div className="ml-auto flex items-center gap-1.5 sm:ml-0">
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            render={<a href={`/api/logs/download?file=${encodeURIComponent(currentFile)}`} download />}
+                            nativeButton={false}
+                          >
+                            <IconDownload />
+                          </Button>
+                        }
+                      />
+                      <TooltipContent>Скачать {currentFile}</TooltipContent>
+                    </Tooltip>
                     <Tooltip>
                       <TooltipTrigger
                         render={

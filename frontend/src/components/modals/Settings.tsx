@@ -9,8 +9,10 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { TechMenuList } from '../configuration/TechFilesMenu'
+import { useTechMenuUnlocked } from '../../lib/techMenu'
 import { IconAlertCircle, IconSettings, IconX, IconArrowBackUp } from '@tabler/icons-react'
-import { Fragment, memo, useCallback, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useState } from 'react'
 import { apiCall } from '../../lib/api'
 import { useAppContext, useModalContext } from '../../lib/store'
 import type { AppSettings, ThemeMode } from '../../lib/types'
@@ -367,10 +369,23 @@ function AuthSettingsField({
   )
 }
 
-export function SettingsModal() {
+interface SettingsModalProps {
+  /** Открыть журнал из «Технического меню». */
+  onOpenLog: () => void
+  /** Открыть конфиг Xray или список XKeen из «Технического меню». */
+  onOpenFile: (file: string) => void
+}
+
+export function SettingsModal({ onOpenLog, onOpenFile }: SettingsModalProps) {
   const { state, dispatch, showToast } = useAppContext({ includeSettings: true })
   const { modals } = useModalContext()
   const { settings } = state
+  const techMenu = useTechMenuUnlocked()
+  const [tab, setTab] = useState('general')
+  // Меню скрыли, пока была открыта его вкладка, — возвращаемся на «Общие».
+  useEffect(() => {
+    if (!techMenu && tab === 'tech') setTab('general')
+  }, [techMenu, tab])
 
   const close = useCallback(() => dispatch({ type: 'SHOW_MODAL', modal: 'showSettingsModal', show: false }), [dispatch])
 
@@ -473,7 +488,7 @@ export function SettingsModal() {
           </DialogTitle>
         </DialogHeader>
 
-        <Tabs defaultValue="general" className="flex flex-1 flex-col overflow-hidden">
+        <Tabs value={tab} onValueChange={setTab} className="flex flex-1 flex-col overflow-hidden">
           <div className="scrollbar-none overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             <TabsList
               variant="line"
@@ -483,6 +498,7 @@ export function SettingsModal() {
               <TabsTrigger value="gui">Режим GUI</TabsTrigger>
               <TabsTrigger value="updates">Обновления</TabsTrigger>
               <TabsTrigger value="plugins">Плагины</TabsTrigger>
+              {techMenu && <TabsTrigger value="tech">Техническое меню</TabsTrigger>}
             </TabsList>
           </div>
 
@@ -609,6 +625,19 @@ export function SettingsModal() {
                     </Fragment>
                   ))}
                 </FieldGroup>
+              </TabsContent>
+
+              <TabsContent value="tech">
+                <TechMenuList
+                  onSelectLog={() => {
+                    close()
+                    onOpenLog()
+                  }}
+                  onSelectFile={(file) => {
+                    close()
+                    onOpenFile(file)
+                  }}
+                />
               </TabsContent>
             </div>
           </ScrollArea>

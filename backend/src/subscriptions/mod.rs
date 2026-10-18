@@ -7,7 +7,7 @@
 mod device;
 mod parser;
 mod ping;
-mod routing;
+pub(crate) mod routing;
 mod selection;
 mod title;
 

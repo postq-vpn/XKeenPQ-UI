@@ -74,6 +74,9 @@ type ApiResult = { success: boolean; error?: string }
 
 export const isXkeenFile = (file: string) => file.startsWith('/opt/etc/xkeen')
 
+/** Настройки логов Xray закреплены панелью (backend: xray_log.rs) — файл не показывается. */
+export const isPanelManagedFile = (file: string) => file.endsWith('/01_log.json')
+
 /** Подпись вкладки: имя файла без расширения и номера-префикса, файлы подписок — «sub: <тег>». */
 export const tabLabel = (file: string) =>
   (file.split('/').pop() ?? file)

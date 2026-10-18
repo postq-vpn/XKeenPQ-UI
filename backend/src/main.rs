@@ -14,6 +14,7 @@ mod types;
 mod updater;
 mod version;
 mod websocket;
+mod xray_log;
 use crate::logger::{log, ts};
 use crate::types::*;
 use axum::http::StatusCode;
@@ -378,6 +379,7 @@ async fn main() {
     setup_process_logging();
     println!("XKeen UI {} ({})", VERSION, get_arch());
 
+    let log_config_changed = xray_log::ensure_log_config();
     refresh_xray_log_paths();
     let error_log = error_log_path();
     let access_log = access_log_path();
@@ -444,6 +446,13 @@ async fn main() {
     };
     version::start_update_checker(state.clone());
     subscriptions::start_scheduler(state.clone());
+    xray_log::start_log_trimmer();
+    if log_config_changed && !controller::get_pid("xray").is_empty() {
+        log("INFO", "Перезапуск Xray после изменения настроек логов".into());
+        if let Err(e) = controller::soft_restart("xray").await {
+            log("ERROR", format!("Не удалось перезапустить Xray: {e}"));
+        }
+    }
 
     if let Some(ref _token) = state.rci_token {
         log("INFO", "RCI токен успешно загружен".into());
@@ -492,6 +501,7 @@ async fn main() {
         )
         .route("/api/version", get(version::version_handler))
         .route("/api/system", get(system::get_system_stats))
+        .route("/api/logs/download", get(xray_log::get_log_download))
         .route(
             "/api/route-test",
             get(route_test::get_route_test_meta).post(route_test::post_route_test),

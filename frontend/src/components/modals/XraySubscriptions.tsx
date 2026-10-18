@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
@@ -24,13 +24,11 @@ import {
   IconAlertCircle,
   IconDatabase,
   IconDeviceFloppy,
-  IconFilter,
   IconInfoCircle,
   IconPencil,
   IconPlus,
   IconRefresh,
   IconTrash,
-  IconX,
 } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -762,7 +760,6 @@ export function XraySubscriptionsModal({
   const [loading, setLoading] = useState(true)
   const [updatingTags, setUpdatingTags] = useState<string[]>([])
   const [savingServers, setSavingServers] = useState<string | null>(null)
-  const [filter, setFilter] = useState('')
   const [editing, setEditing] = useState<XraySubscription | null>(null)
   const [editorOpen, setEditorOpen] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
@@ -798,18 +795,13 @@ export function XraySubscriptionsModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, loading, ping])
 
-  const needle = filter.trim().toLowerCase()
   const serverGroups = useMemo(
     () =>
-      subs
-        .map((sub) => {
-          const servers = withoutAutoServers(sub.server_list).filter(
-            (s) => !needle || serverName(sub, s.tag).toLowerCase().includes(needle)
-          )
-          return { sub, servers }
-        })
-        .filter((g) => !needle || g.servers.length > 0),
-    [subs, needle]
+      subs.map((sub) => {
+        const servers = withoutAutoServers(sub.server_list)
+        return { sub, servers }
+      }),
+    [subs]
   )
 
   const replaceSub = (next: XraySubscription) => setSubs((prev) => prev.map((s) => (s.tag === next.tag ? next : s)))
@@ -978,26 +970,6 @@ export function XraySubscriptionsModal({
 
   const body = (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center gap-2">
-        <InputGroup className="min-w-40 flex-1">
-          <InputGroupInput value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Фильтр" />
-          <InputGroupAddon>
-            <IconFilter />
-          </InputGroupAddon>
-          {filter && (
-            <InputGroupAddon align="inline-end">
-              <InputGroupButton className="text-muted-foreground hover:text-destructive" onClick={() => setFilter('')}>
-                <IconX size={13} />
-              </InputGroupButton>
-            </InputGroupAddon>
-          )}
-        </InputGroup>
-        <Button variant="outline" onClick={onAddNew}>
-          <IconPlus data-icon="inline-start" />
-          Добавить
-        </Button>
-      </div>
-
       <div className="border-border bg-input-background min-h-0 flex-1 scrollbar-thin overflow-auto rounded-xl border">
         {loading ? (
           <LoadingTable />
@@ -1033,6 +1005,15 @@ export function XraySubscriptionsModal({
               <IconDatabase size={20} className="text-chart-2" />
               Подписка и серверы
             </h2>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={onAddNew}
+              aria-label="Добавить подписку или сервер"
+              title="Добавить подписку или сервер"
+            >
+              <IconPlus />
+            </Button>
             <div className="ml-auto flex items-center gap-2">{headerExtra}</div>
           </div>
           <div className="flex max-h-[70dvh] min-h-0 flex-col">{body}</div>

@@ -2,8 +2,9 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { LoginForm } from './components/auth/Login'
 import type { CodeMirrorRef } from './components/configuration/CodeMirror'
-import { ConfigPanel } from './components/configuration/ConfigPanel'
+import { ConfigPanel, isPanelManagedFile } from './components/configuration/ConfigPanel'
 
+import { LogDownloadMenu } from './components/log/LogDownloadMenu'
 import { LogPanel } from './components/log/LogPanel'
 import { ImportModal } from './components/modals/AddOutbound'
 import { CommentsWarningModal } from './components/modals/CommentsWarning'
@@ -25,6 +26,7 @@ import { ONLINE_PING_INTERVAL_MS, LOCAL_ROUTER_ID, routerId } from './lib/multi-
 import { applyRoutersFromSettings, refreshAllOnline } from './lib/multi-routers/actions'
 import { useRoutersStore } from './lib/multi-routers/store'
 import { getAppState, useAppActions, useModalContext, useSettings } from './lib/store'
+import { useTechMenuHotkey } from './lib/techMenu'
 import { applyTheme, THEME_MEDIA_QUERY } from './lib/theme'
 import { DEFAULT_XRAY_REPO, type Config, type ThemeMode, type XraySubscription } from './lib/types'
 import { parse as parseJsonc } from 'jsonc-parser'
@@ -50,6 +52,8 @@ interface ModalManagerProps {
   onSubscriptionSaved: () => void
   welcome: boolean
   openModal: (modal: string) => void
+  onOpenLog: () => void
+  onOpenFile: (file: string) => void
 }
 
 const ModalManager = memo(function ModalManager({
@@ -60,6 +64,8 @@ const ModalManager = memo(function ModalManager({
   onSubscriptionSaved,
   welcome,
   openModal,
+  onOpenLog,
+  onOpenFile,
 }: ModalManagerProps) {
   const { modals, dispatch } = useModalContext()
 
@@ -110,7 +116,7 @@ const ModalManager = memo(function ModalManager({
         }}
       />
       {mountTemplate && <TemplateModal onImport={onImportTemplate} />}
-      {mountSettings && <SettingsModal />}
+      {mountSettings && <SettingsModal onOpenLog={onOpenLog} onOpenFile={onOpenFile} />}
       {mountGeoScan && <GeoScanModal />}
       {mountRouteTest && <RouteTesterModal />}
     </>
@@ -146,7 +152,9 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
       try {
         const result = await apiCall<any>('GET', 'configs')
         if (result.success && result.configs) {
-          const configs: Config[] = result.configs.map((c: any) => ({ ...c, savedContent: c.content, isDirty: false }))
+          const configs: Config[] = result.configs
+            .filter((c: any) => !isPanelManagedFile(c.file))
+            .map((c: any) => ({ ...c, savedContent: c.content, isDirty: false }))
           dispatch({ type: 'SET_CONFIGS', configs })
           return configs
         } else {
@@ -267,6 +275,13 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
 
   const refreshConfigsSilently = useCallback(() => loadConfigs(true), [loadConfigs])
 
+  useTechMenuHotkey(
+    useCallback(
+      (unlocked: boolean) => showToast(unlocked ? 'Техническое меню включено — оно в настройках' : 'Техническое меню скрыто'),
+      [showToast]
+    )
+  )
+
   // Главный блок: «Подписка и серверы», журнал или редактор файла, выбранного в меню «Технические файлы».
   const [view, setViewState] = useState<View>(() => {
     try {
@@ -293,6 +308,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     },
     [setView]
   )
+  const openLog = useCallback(() => setView('log'), [setView])
   const techMenu = (
     <TechFilesMenu
       activeFile={view === 'files' ? activeFile : null}
@@ -444,7 +460,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
               reloadKey={subsReloadKey}
               onChanged={() => void refreshConfigsSilently()}
               onAddNew={() => openModal('showImportModal')}
-              headerExtra={techMenu}
+              headerExtra={<LogDownloadMenu />}
               onLoaded={onSubscriptionsLoaded}
             />
           </div>
@@ -476,6 +492,8 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
         onSubscriptionSaved={onSubscriptionSaved}
         welcome={welcome}
         openModal={openModal}
+        onOpenLog={openLog}
+        onOpenFile={openFile}
       />
     </div>
   )
