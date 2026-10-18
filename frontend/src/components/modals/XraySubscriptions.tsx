@@ -743,15 +743,11 @@ export function XrayServerDialog({ sub, onClose, onDone }: ServerDialogProps) {
 }
 
 interface ModalProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  /** Встроенный блок главной страницы вместо окна. */
-  asPage?: boolean
   /** Меняется, когда подписки изменились снаружи (добавлена новая) — список перечитывается. */
   reloadKey?: number
-  /** Элементы справа в заголовке блока (режим страницы). */
+  /** Элементы справа в заголовке блока. */
   headerExtra?: ReactNode
-  /** Список подписок загружен (режим страницы) — родитель решает, показать ли окно первого запуска. */
+  /** Список подписок загружен — родитель решает, показать ли окно первого запуска. */
   onLoaded?: (subs: XraySubscription[]) => void
   /** Вызывается после изменения файлов outbounds, чтобы перечитать конфиги. */
   onChanged: () => void
@@ -759,20 +755,10 @@ interface ModalProps {
   onAddNew: () => void
 }
 
-/** Серверы и подписки Xray. */
-export function XraySubscriptionsModal({
-  open: openProp,
-  onOpenChange,
-  onChanged,
-  onAddNew,
-  asPage,
-  reloadKey,
-  headerExtra,
-  onLoaded,
-}: ModalProps) {
+/** Главная страница: подписки Xray и их серверы. */
+export function XraySubscriptionsModal({ onChanged, onAddNew, reloadKey, headerExtra, onLoaded }: ModalProps) {
   const onLoadedRef = useRef(onLoaded)
   onLoadedRef.current = onLoaded
-  const open = asPage || openProp
   const { showToast } = useAppActions()
   const [subs, setSubs] = useState<XraySubscription[]>([])
   const [loading, setLoading] = useState(true)
@@ -802,16 +788,16 @@ export function XraySubscriptionsModal({
     [showToast]
   )
 
+  // Первая загрузка — со скелетоном, перечитывание после изменений снаружи — тихое.
   useEffect(() => {
-    if (!open) return
-    void load(asPage && reloadKey !== undefined && reloadKey > 0)
-  }, [open, load, asPage, reloadKey])
+    void load(reloadKey !== undefined && reloadKey > 0)
+  }, [load, reloadKey])
 
   // Пинг всех серверов после загрузки списка.
   useEffect(() => {
-    if (open && !loading) void ping(subs.flatMap((s) => withoutAutoServers(s.server_list)))
+    if (!loading) void ping(subs.flatMap((s) => withoutAutoServers(s.server_list)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, loading, ping])
+  }, [loading, ping])
 
   const serverGroups = useMemo(
     () =>
@@ -1023,42 +1009,25 @@ export function XraySubscriptionsModal({
 
   return (
     <TooltipProvider delayDuration={500} skipDelayDuration={0}>
-      {asPage ? (
-        <section className="border-border bg-card flex flex-col gap-4 rounded-xl border px-3 py-3 sm:px-4 sm:py-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="flex items-center gap-2 text-lg font-semibold select-none">
-              <IconDatabase size={20} className="text-chart-2" />
-              Подписка и серверы
-            </h2>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={onAddNew}
-              aria-label="Добавить подписку или сервер"
-              title="Добавить подписку или сервер"
-            >
-              <IconPlus />
-            </Button>
-            <div className="ml-auto flex items-center gap-2">{headerExtra}</div>
-          </div>
-          <div className="flex max-h-[70dvh] min-h-0 flex-col">{body}</div>
-        </section>
-      ) : (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-          <DialogContent initialFocus={false} className="w-full max-w-[95vw]! md:w-[min(80vw,850px)]">
-            <div className="flex max-h-[88dvh] flex-col gap-4 overflow-hidden md:max-h-[60dvh]">
-              <DialogHeader className="shrink-0">
-                <DialogTitle className="flex items-center gap-2 pr-8 pb-3">
-                  <IconDatabase size={22} className="text-chart-2" />
-                  Подписки Xray
-                </DialogTitle>
-              </DialogHeader>
-
-              {body}
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
+      <section className="border-border bg-card flex flex-col gap-4 rounded-xl border px-3 py-3 sm:px-4 sm:py-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="flex items-center gap-2 text-lg font-semibold select-none">
+            <IconDatabase size={20} className="text-chart-2" />
+            Подписка и серверы
+          </h2>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={onAddNew}
+            aria-label="Добавить подписку или сервер"
+            title="Добавить подписку или сервер"
+          >
+            <IconPlus />
+          </Button>
+          <div className="ml-auto flex items-center gap-2">{headerExtra}</div>
+        </div>
+        <div className="flex max-h-[70dvh] min-h-0 flex-col">{body}</div>
+      </section>
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent className="flex max-h-[90dvh] w-auto! max-w-[min(90vw,900px)]! min-w-[min(90vw,480px)]! flex-col overflow-hidden">

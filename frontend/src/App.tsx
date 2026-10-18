@@ -475,9 +475,6 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
           <RoutingWarning reloadKey={subsReloadKey} />
           <div className={cn(view !== 'servers' && 'hidden')}>
             <XraySubscriptionsModal
-              asPage
-              open
-              onOpenChange={() => {}}
               reloadKey={subsReloadKey}
               onChanged={() => void refreshConfigsSilently()}
               onAddNew={() => openModal('showImportModal')}

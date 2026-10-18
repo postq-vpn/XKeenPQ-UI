@@ -8,13 +8,6 @@ import { cn } from '../../lib/utils'
 
 const COLUMN_COUNT = 6
 const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
-const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
-  ['year', 31536000],
-  ['month', 2592000],
-  ['day', 86400],
-  ['hour', 3600],
-  ['minute', 60],
-]
 const BADGE_TONES = {
   blue: 'bg-blue-500/10! text-blue-400!',
   green: 'bg-green-500/10! text-green-400!',
@@ -24,8 +17,6 @@ const BADGE_TONES = {
 }
 
 type BadgeTone = keyof typeof BADGE_TONES
-
-const relativeTimeFormatter = new Intl.RelativeTimeFormat('ru', { numeric: 'auto' })
 
 function parseDate(value?: string | number) {
   if (!value) return null
@@ -43,15 +34,6 @@ export function formatDateTime(value?: string | number) {
       minute: '2-digit',
     }) ?? '—'
   )
-}
-
-export function formatRelativeTime(value?: string | number) {
-  const date = parseDate(value)
-  if (!date) return '—'
-  const elapsedSeconds = (Date.now() - date.getTime()) / 1000
-  if (elapsedSeconds < 45) return 'только что'
-  const [unit, unitSeconds] = RELATIVE_UNITS.find(([, seconds]) => elapsedSeconds >= seconds) ?? RELATIVE_UNITS[RELATIVE_UNITS.length - 1]
-  return relativeTimeFormatter.format(-Math.round(elapsedSeconds / unitSeconds), unit)
 }
 
 export function formatBytes(bytes: number) {

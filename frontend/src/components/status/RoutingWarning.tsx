@@ -31,11 +31,17 @@ export function RoutingWarning({ reloadKey }: { reloadKey: number }) {
     }
   }, [])
 
+  // Проверяем при открытии и после изменений подписок; раз в минуту — только пока предупреждение
+  // на экране (ждём, когда роутер сам поставит маршрутизацию).
   useEffect(() => {
     void load()
+  }, [load, reloadKey])
+  const pending = !!status?.pending
+  useEffect(() => {
+    if (!pending) return
     const timer = setInterval(load, POLL_MS)
     return () => clearInterval(timer)
-  }, [load, reloadKey])
+  }, [load, pending])
 
   /** Роутер качает недостающие геобазы, включает их автообновление и ставит маршрутизацию. */
   async function download() {
