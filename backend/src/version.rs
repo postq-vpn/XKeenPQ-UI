@@ -8,6 +8,9 @@ use tokio::process::Command;
 use tokio::time::timeout;
 
 const GITHUB_RELEASE: &str = "https://github.com";
+/// Как часто проверять новую версию панели: релизы выходят часто, а запрос к GitHub один.
+const UI_CHECK_INTERVAL_SECS: u64 = 3600;
+const CORE_CHECK_INTERVAL_SECS: u64 = 14400;
 
 pub async fn get_local_core_version(core: &str) -> Option<String> {
     let mut cmd = Command::new(format!("/opt/sbin/{}", core));
@@ -98,8 +101,8 @@ pub fn start_update_checker(state: AppState) {
                     on && last.read().unwrap().is_none_or(|t| t.elapsed().as_secs() > sec)
                 };
                 (
-                    need(s.updater.auto_check_ui, &state.update_checker.last_ui_check, 14400),
-                    need(s.updater.auto_check_core, &state.update_checker.last_core_check, 14400),
+                    need(s.updater.auto_check_ui, &state.update_checker.last_ui_check, UI_CHECK_INTERVAL_SECS),
+                    need(s.updater.auto_check_core, &state.update_checker.last_core_check, CORE_CHECK_INTERVAL_SECS),
                     s.updater.github_proxy.clone(),
                     s.updater.clone(),
                 )

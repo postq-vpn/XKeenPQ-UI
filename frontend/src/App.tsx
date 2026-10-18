@@ -267,6 +267,13 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     init()
   }, [checkStatus, loadConfigs, dispatch, showToast, checkVersion])
 
+  // Роутер проверяет обновления сам; страница переспрашивает его, чтобы индикатор появился без перезагрузки.
+  // Всплывающее уведомление backend показывает не чаще раза в сутки.
+  useEffect(() => {
+    const timer = setInterval(() => void checkVersion(true), VERSION_POLL_MS)
+    return () => clearInterval(timer)
+  }, [checkVersion])
+
   const onlineTargetsKey = useRoutersStore((s) => [LOCAL_ROUTER_ID, ...s.routers.map(routerId)].join('|'))
   useEffect(() => {
     if (!multiRouter) return
@@ -512,6 +519,8 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
 }
 
 type View = 'servers' | 'files' | 'log'
+
+const VERSION_POLL_MS = 5 * 60 * 1000
 
 type AuthState = 'loading' | 'login' | 'setup' | 'authenticated'
 
