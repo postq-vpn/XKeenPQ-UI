@@ -213,7 +213,8 @@ fn create_backup_sync(tz: i32) -> Result<BackupItem, String> {
     let content = collect_backup_content(files.iter().map(|(_, rel)| rel.as_str()));
 
     let write_result = (|| -> io::Result<()> {
-        let file = File::create(&temp_path)?;
+        // в архиве ссылки подписок и токен RCI из xkeen.json
+        let file = crate::private_file::create(&temp_path)?;
         let mut builder = Builder::new(file);
         builder.follow_symlinks(true);
         for (source, relative) in &files {
@@ -289,6 +290,11 @@ fn restore_backup_sync(name: &str, requested_contents: Option<Vec<String>>) -> R
             use std::os::unix::fs::PermissionsExt;
             let _ = fs::set_permissions(&target, fs::Permissions::from_mode(mode));
         }
+        // JSON из /opt/etc/xkeen (подписки, настройки панели, xkeen.json с токеном) — только для root,
+        // даже если архив сделан версией, которая хранила их открытыми
+        if target.starts_with(XKEEN_CONF_DIR) && target.extension().is_some_and(|e| e == "json") {
+            crate::private_file::restrict(&target);
+        }
 
         restored_contents.insert(content);
     }
@@ -334,6 +340,18 @@ fn rename_backup_sync(name: &str, new_name: &str) -> Result<(), String> {
 
 fn ensure_backup_dir() -> io::Result<()> {
     fs::create_dir_all(BACKUP_DIR)
+}
+
+/// Бэкапы панели, созданные прежними версиями с открытыми правами, — только для root.
+pub fn restrict_backups() {
+    let Ok(entries) = fs::read_dir(BACKUP_DIR) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if is_tar_file(&entry.path()) {
+            crate::private_file::restrict(&entry.path());
+        }
+    }
 }
 
 fn is_tar_file(path: &Path) -> bool {

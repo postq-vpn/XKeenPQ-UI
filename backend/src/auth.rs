@@ -335,7 +335,7 @@ async fn save_auth_to_config(state: &AppState) {
     file_json["auth"] = serde_json::to_value(auth).unwrap();
     let serialized = serde_json::to_string_pretty(&file_json).unwrap();
     let tmp = format!("{}.tmp", APP_CONFIG);
-    if tokio::fs::write(&tmp, &serialized).await.is_ok() {
+    if crate::private_file::write(&tmp, &serialized).await.is_ok() {
         let _ = tokio::fs::rename(&tmp, APP_CONFIG).await;
     }
 }

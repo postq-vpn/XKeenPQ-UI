@@ -56,7 +56,7 @@ pub async fn patch_settings(State(state): State<AppState>, Json(patch): Json<ser
 
     let serialized = serde_json::to_string_pretty(&file_json).unwrap();
     let tmp = format!("{}.tmp", APP_CONFIG);
-    match tokio::fs::write(&tmp, &serialized).await {
+    match crate::private_file::write(&tmp, &serialized).await {
         Ok(_) => match tokio::fs::rename(&tmp, APP_CONFIG).await {
             Ok(_) => Json(serde_json::json!({"success": true})),
             Err(e) => Json(serde_json::json!({"success": false, "error": e.to_string()})),

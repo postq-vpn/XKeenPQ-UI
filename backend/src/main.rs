@@ -6,6 +6,7 @@ mod frontend_embedder;
 mod geo;
 mod geoipset;
 mod logger;
+mod private_file;
 mod route_test;
 mod settings;
 mod subscriptions;
@@ -379,6 +380,11 @@ async fn main() {
     setup_process_logging();
     println!("XKeen UI {} ({})", VERSION, get_arch());
 
+    // Секреты (ссылки подписок, хеш пароля, бэкапы с токеном) — только для root, в том числе
+    // файлы, записанные прежними версиями с открытыми правами
+    private_file::restrict(Path::new(SUBSCRIPTIONS_FILE));
+    private_file::restrict(Path::new(APP_CONFIG));
+    backuper::restrict_backups();
     let log_config_changed = xray_log::ensure_log_config();
     refresh_xray_log_paths();
     let error_log = error_log_path();

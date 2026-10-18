@@ -285,7 +285,8 @@ async fn save_store(store: &Store) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
     let tmp = format!("{}.tmp", SUBSCRIPTIONS_FILE);
-    tokio::fs::write(&tmp, serde_json::to_string_pretty(store).unwrap())
+    // ссылки подписок — по сути пароли от аккаунтов у провайдера
+    crate::private_file::write(&tmp, serde_json::to_string_pretty(store).unwrap())
         .await
         .map_err(|e| e.to_string())?;
     tokio::fs::rename(&tmp, SUBSCRIPTIONS_FILE)
