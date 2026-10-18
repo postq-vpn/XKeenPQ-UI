@@ -10,6 +10,7 @@ import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { TechMenuList } from '../configuration/TechFilesMenu'
+import { RuExcludeSetting } from './RuExcludeSetting'
 import { useTechMenuUnlocked } from '../../lib/techMenu'
 import { IconAlertCircle, IconSettings, IconX, IconArrowBackUp } from '@tabler/icons-react'
 import { Fragment, memo, useCallback, useEffect, useState } from 'react'
@@ -577,6 +578,7 @@ export function SettingsModal({ onOpenLog, onOpenFile }: SettingsModalProps) {
                     onOpenFile(file)
                   }}
                 />
+                <RuExcludeSetting />
                 <Separator className="my-3" />
                 <p className="text-muted-foreground pt-4 pb-1 text-xs font-medium tracking-wider uppercase">Режим GUI</p>
                 <Alert className="my-2 border-amber-500/20 bg-amber-100 p-2.75 text-yellow-600 dark:bg-[#2a1f0d] dark:text-amber-400">

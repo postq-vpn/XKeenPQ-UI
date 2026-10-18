@@ -5,6 +5,7 @@ mod configs;
 mod controller;
 mod frontend_embedder;
 mod geo;
+mod geoipset;
 mod logger;
 mod route_test;
 mod settings;
@@ -502,6 +503,7 @@ async fn main() {
         .route("/api/version", get(version::version_handler))
         .route("/api/system", get(system::get_system_stats))
         .route("/api/logs/download", get(xray_log::get_log_download))
+        .route("/api/geoipset", get(geoipset::get_geoipset).post(geoipset::post_geoipset))
         .route(
             "/api/route-test",
             get(route_test::get_route_test_meta).post(route_test::post_route_test),
