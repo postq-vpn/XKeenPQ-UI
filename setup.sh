@@ -21,9 +21,26 @@ LIGHTTPD_INIT="/opt/etc/init.d/S80lighttpd"
 LIGHTTPD_DIR="/opt/etc/lighttpd"
 LIGHTTPD_CONF="$LIGHTTPD_DIR/conf.d/90-xkeenui.conf"
 
+XKEEN_BIN="/opt/sbin/xkeen"
+XRAY_BIN="/opt/sbin/xray"
+# Init-скрипт XKeen: S05xkeen в текущих версиях, S99xkeen в старых
+XKEEN_INITS="/opt/etc/init.d/S05xkeen /opt/etc/init.d/S99xkeen"
+XKEEN_CONFIG="/opt/etc/xkeen/xkeen.json"
+XKEEN_INSTALLER="https://raw.githubusercontent.com/jameszeroX/XKeen/main/install.sh"
+# Пункты установки XKeen для режима auto: ядро Xray, геобазы, GeoIPSET, их автообновление и автозагрузка
+XKEEN_AUTO_ARGS="-i auto cores=xray"
+
 BETA=false
 LOCAL=false
-[ "$1" = "beta" ] && BETA=true
+AUTO=false
+TOKEN=""
+for arg in "$@"; do
+  case "$arg" in
+    beta) BETA=true ;;
+    auto) AUTO=true ;;
+    token=*) TOKEN="${arg#token=}" ;;
+  esac
+done
 
 spinner() {
   local pid=$1 msg=$2
@@ -143,13 +160,15 @@ update_xkeenui() {
 }
 
 uninstall_xkeenui() {
-  printf "\n Данное действие ${RED_BOLD}удалит${NC} XKeen UI, его файлы и зависимости.\n\n"
-  read -p " Продолжить? [y/N]: " response < /dev/tty
-  response=$(printf '%s' "$response" | tr -cd 'YyNn')
-  case "$response" in
-    [Yy]) printf "${INFO} Начинаем удаление...${NCN}";;
-    *) printf "${ERROR} Отмена операции.${NCN}"; exit 1;;
-  esac
+  if [ "$AUTO" != true ]; then
+    printf "\n Данное действие ${RED_BOLD}удалит${NC} XKeen UI, его файлы и зависимости.\n\n"
+    read -p " Продолжить? [y/N]: " response < /dev/tty
+    response=$(printf '%s' "$response" | tr -cd 'YyNn')
+    case "$response" in
+      [Yy]) printf "${INFO} Начинаем удаление...${NCN}";;
+      *) printf "${ERROR} Отмена операции.${NCN}"; exit 1;;
+    esac
+  fi
 
   (
     if [[ -f "$LIGHTTPD_INIT" && -f "$LIGHTTPD_CONF" ]]; then
@@ -186,7 +205,8 @@ legacy_installation_check() {
     $LIGHTTPD_INIT status &>/dev/null && $LIGHTTPD_INIT stop
     rm -f "$LIGHTTPD_CONF"
     printf "${YELLOW}\n Веб-сервер lighttpd для работы XKeen UI более не используется.\n${NC}"
-    read -p " Удалить его? [Y/n]: " response < /dev/tty
+    response=y
+    [ "$AUTO" = true ] || read -p " Удалить его? [Y/n]: " response < /dev/tty
     response=$(printf '%s' "$response" | tr -cd 'YyNn')
     case "$response" in
       [Nn]) return;;
@@ -211,6 +231,122 @@ EOF
   chmod +x $XKEENUI_INIT
 }
 
+# Ставит XKeen без вопросов его же установщиком: тот в конце запускает интерактивный `xkeen -i`,
+# поэтому последняя строка заменяется на `xkeen $XKEEN_AUTO_ARGS`.
+install_xkeen_auto() {
+  local installer="/opt/tmp/xkeen-install.sh"
+  mkdir -p /opt/tmp
+  ( curl -Lsf "$XKEEN_INSTALLER" -o "$installer" || curl -Lsf "https://gh-proxy.com/$XKEEN_INSTALLER" -o "$installer" ) &
+  if ! spinner $! "Загрузка установщика XKeen..."; then
+    printf "${RED_BOLD}\n Не удалось загрузить установщик XKeen.${NCN}"
+    exit 1
+  fi
+  sed -i "s|^exec /opt/sbin/xkeen -i\$|exec /opt/sbin/xkeen $XKEEN_AUTO_ARGS|" "$installer"
+  if ! grep -q "^exec /opt/sbin/xkeen $XKEEN_AUTO_ARGS\$" "$installer"; then
+    rm -f "$installer"
+    printf "${RED_BOLD}\n Установщик XKeen изменился, автоустановка невозможна.${NC}\n"
+    printf " Установите XKeen по инструкции https://github.com/jameszeroX/XKeen и запустите эту команду снова.\n\n"
+    exit 1
+  fi
+  printf "${INFO} Установка XKeen...${NCN}"
+  # stdin не из конвейера curl | sh: иначе установщик прочитает остаток этого скрипта
+  ( cd /opt/tmp && sh "$installer" --stable ) < /dev/null
+  rm -f "$installer"
+}
+
+# Панель работает только с Xray. `xkeen -xray` останавливает Mihomo и переключает init-скрипт XKeen;
+# если прокси работал, XKeen запускается уже на Xray.
+switch_to_xray() {
+  local was_running=false
+  pidof mihomo &>/dev/null && was_running=true
+  if grep -qs 'name_client="mihomo"' $XKEEN_INITS; then
+    "$XKEEN_BIN" -xray < /dev/null &>/dev/null &
+    spinner $! "Переключение XKeen на ядро Xray..."
+    if grep -qs 'name_client="mihomo"' $XKEEN_INITS; then
+      printf "${ERROR} Не удалось переключить XKeen на ядро Xray.${NCN}"
+      exit 1
+    fi
+  elif [ "$was_running" = true ]; then
+    # init-скрипт уже на Xray (прежние версии панели меняли только его), а Mihomo ещё работает
+    killall -q mihomo &>/dev/null || :
+  else
+    return 0
+  fi
+  [ "$was_running" = true ] && { "$XKEEN_BIN" -start < /dev/null &>/dev/null || :; }
+}
+
+# Код ответа RCI роутера; $1 — токен доступа (пусто — без токена)
+rci_code() {
+  if [ -n "$1" ]; then
+    curl --noproxy '*' -m 5 -s -o /dev/null -w "%{http_code}" -H "X-Ndma-Tkn: $1" http://127.0.0.1:79/rci/show/version
+  else
+    curl --noproxy '*' -m 5 -s -o /dev/null -w "%{http_code}" http://127.0.0.1:79/rci/show/version
+  fi
+}
+
+# KeeneticOS 5.2 и новее пускают XKeen к RCI только с токеном из xkeen.json.
+# Токен из token=… записывается туда до установки XKeen; без нужного токена установка не начинается.
+prepare_rci_token() {
+  if [ -n "$TOKEN" ]; then
+    case "$TOKEN" in
+      *[!A-Za-z0-9._~-]*) printf "${ERROR} Токен содержит недопустимые символы.${NCN}"; exit 1 ;;
+    esac
+    mkdir -p "${XKEEN_CONFIG%/*}"
+    if grep -qs '"rci_token"' "$XKEEN_CONFIG"; then
+      sed -i "s|\"rci_token\"[[:space:]]*:[[:space:]]*\"[^\"]*\"|\"rci_token\": \"$TOKEN\"|" "$XKEEN_CONFIG"
+    elif grep -qs '"xkeen"' "$XKEEN_CONFIG"; then
+      printf "${ERROR} Добавьте токен в ${XKEEN_CONFIG} вручную: \"rci_token\": \"<токен>\" в разделе \"xkeen\".${NCN}"
+      exit 1
+    else
+      printf '{\n  "xkeen": {\n    "rci_token": "%s"\n  }\n}\n' "$TOKEN" > "$XKEEN_CONFIG"
+    fi
+  fi
+  local token
+  token=$(sed -n 's/.*"rci_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$XKEEN_CONFIG" 2>/dev/null | head -n 1)
+  case "$(rci_code "$token")" in
+    401|403)
+      if [ -n "$token" ]; then
+        printf "${ERROR} Роутер не принял токен доступа. Создайте новый и запустите команду снова.${NCN}"
+      else
+        printf "${ERROR} Прошивке нужен токен доступа.${NC}\n"
+        printf " Создайте его в веб-интерфейсе роутера в разделе «Пользователи и доступ» и добавьте в команду:\n"
+        printf " ${GREEN_BOLD}… | sh -s -- auto token=ВАШ_ТОКЕН${NCN}"
+      fi
+      exit 1
+      ;;
+  esac
+}
+
+auto_setup() {
+  printf "${INFO} Автоматическая установка XKeen и XKeen UI${NCN}"
+  prepare_rci_token
+  if [ ! -x "$XKEEN_BIN" ]; then
+    install_xkeen_auto
+  elif [ ! -x "$XRAY_BIN" ]; then
+    # Без режима auto старый XKeen ждёт ответов в меню, а их неоткуда взять
+    if ! grep -q 'get_auto_arg' "$XKEEN_BIN"; then
+      printf "${ERROR} Установленная версия XKeen не поддерживает автоустановку.${NC}\n"
+      printf " Обновите XKeen командой ${GREEN_BOLD}xkeen -uk${NC} и запустите эту команду снова.\n\n"
+      exit 1
+    fi
+    printf "${INFO} XKeen уже установлен, ставим ядро Xray...${NCN}"
+    "$XKEEN_BIN" -ux auto < /dev/null
+  else
+    printf " XKeen и Xray уже установлены, пропускаем\n"
+  fi
+  if [ ! -x "$XKEEN_BIN" ] || [ ! -x "$XRAY_BIN" ]; then
+    printf "${ERROR} XKeen или ядро Xray не установлены, установка панели прервана.${NCN}"
+    exit 1
+  fi
+  switch_to_xray
+
+  if [ -f "$XKEENUI_BIN" ]; then
+    update_xkeenui
+  else
+    install_xkeenui
+  fi
+}
+
 get_status() {
   [ ! -f "$XKEENUI_BIN" ] && printf "Статус панели: ${RED_BOLD}не установлена${NC}" && return
 
@@ -223,8 +359,14 @@ get_status() {
   printf "Статус панели: $status ${NC}[$version]"
 }
 
-clear
 get_arch
+
+if [ "$AUTO" = true ]; then
+  auto_setup
+  exit 0
+fi
+
+clear
 printf "${CYAN}"
 cat <<'EOF'
    _  __  __ __                       __  __ ____
