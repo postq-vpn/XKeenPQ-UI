@@ -106,6 +106,15 @@ pub async fn run_init_command(state: &AppState, args: &[&str]) -> Result<(), Str
     }
 }
 
+/// Запуск XKeen, как кнопка ▶: проверка конфига Xray, затем `start on` (заодно включает автозапуск).
+pub async fn start_xkeen(state: &AppState) -> Result<(), String> {
+    if let Err(e) = check_core_config().await {
+        log("ERROR", e);
+        return Err("Не удалось запустить Xray".into());
+    }
+    run_init_command(state, &["start", "on"]).await
+}
+
 pub fn get_pid(name: &str) -> Vec<i32> {
     let Ok(entries) = std::fs::read_dir("/proc") else {
         return vec![];

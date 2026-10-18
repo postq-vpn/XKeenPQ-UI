@@ -24,7 +24,7 @@ function highlightJson(code: string): string {
     .replace(/:\s*(true|false|null)/g, ': <span style="color:#bb9af7">$1</span>')
 }
 
-type ApiResult = { success: boolean; error?: string; restart_error?: string }
+type ApiResult = { success: boolean; error?: string; restart_error?: string; started?: boolean }
 
 const SUPPORTED_PROTOCOLS = ['ss://', 'vless://', 'vmess://', 'hysteria2://', 'hy2://', 'http://', 'https://', 'trojan://']
 
@@ -72,7 +72,13 @@ export function ImportModal({ onGenerate, onAddToConfig, onSubscriptionSaved, we
         auto_tag: true,
       })
       if (!res.success || !res.subscription) throw new Error(res.error || 'Не удалось добавить подписку')
-      if (res.restart_error) showToast(`Не удалось перезапустить Xray: ${res.restart_error}`, 'error')
+      if (res.restart_error)
+        showToast(
+          res.restart_error.startsWith('Не удалось') ? res.restart_error : `Не удалось перезапустить Xray: ${res.restart_error}`,
+          'error'
+        )
+      // Первая подписка на остановленном XKeen — роутер запустил его сам.
+      if (res.started) showToast('XKeen запущен')
       close()
       onSubscriptionSaved(res.subscription)
     } catch (e: any) {

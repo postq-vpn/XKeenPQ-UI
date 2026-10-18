@@ -1064,10 +1064,20 @@ pub async fn post_subscription(State(state): State<AppState>, Json(mut sub): Jso
             log("ERROR", format!("Ошибка записи {}: {}", SUBSCRIPTIONS_FILE, e));
         }
     }
-    let restart_error = finish_change(&mut store, true).await;
+    let mut restart_error = finish_change(&mut store, true).await;
+    // Первая подписка, а XKeen не запущен (свежая установка или остановлен вручную) — запускаем,
+    // чтобы после «вставил ссылку и выбрал сервер» VPN сразу заработал.
+    let mut started = false;
+    if first && crate::controller::get_pid("xray").is_empty() {
+        log("INFO", "Запуск XKeen после добавления первой подписки".into());
+        match crate::controller::start_xkeen(&state).await {
+            Ok(()) => started = true,
+            Err(e) => restart_error = Some(format!("Не удалось запустить XKeen: {e}")),
+        }
+    }
     // finish_change мог назначить подписку «Для прокси» — отдаём актуальную версию.
     let saved = store.subscriptions.iter().find(|s| s.tag == sub.tag).unwrap_or(&sub);
-    Json(json!({ "success": true, "subscription": to_api(saved), "restart_error": restart_error }))
+    Json(json!({ "success": true, "subscription": to_api(saved), "restart_error": restart_error, "started": started }))
 }
 
 pub async fn patch_subscription(State(state): State<AppState>, Json(mut sub): Json<Subscription>) -> impl IntoResponse {
@@ -1125,60 +1135,6 @@ pub async fn delete_subscription(Query(q): Query<TagQuery>) -> impl IntoResponse
     // Если удалили подписку «Для прокси», флаг перейдёт к первой оставшейся вместе с правилами.
     let restart_error = finish_change(&mut store, removed || legacy_removed).await;
     Json(json!({ "success": true, "restart_error": restart_error }))
-}
-
-#[derive(Deserialize)]
-pub struct ServersReq {
-    tag: String,
-    disabled_servers: Vec<String>,
-}
-
-/// Включает/отключает серверы по последнему полученному списку, без запроса подписки.
-pub async fn post_servers(Json(req): Json<ServersReq>) -> impl IntoResponse {
-    let _guard = STORE_LOCK.lock().await;
-    let mut store = load_store().await;
-    let Some(sub) = store.subscriptions.iter_mut().find(|s| s.tag == req.tag) else {
-        return fail(format!("Подписка «{}» не найдена", req.tag));
-    };
-    let mut updated = sub.clone();
-    updated.disabled_servers = req.disabled_servers;
-    updated.normalize();
-    let changed = match apply_cached(&mut updated).await {
-        Ok(changed) => changed,
-        Err(e) => return fail(e),
-    };
-    *sub = updated.clone();
-    if let Err(e) = save_store(&store).await {
-        return fail(e);
-    }
-    let restart_error = finish_change(&mut store, changed).await;
-    Json(json!({ "success": true, "subscription": to_api(&updated), "restart_error": restart_error }))
-}
-
-#[derive(Deserialize)]
-pub struct ProxyReq {
-    tag: String,
-}
-
-/// Назначает подписку «Для прокси» и направляет на неё проксируемые правила routing.
-pub async fn post_proxy(Json(req): Json<ProxyReq>) -> impl IntoResponse {
-    let _guard = STORE_LOCK.lock().await;
-    let mut store = load_store().await;
-    if !store.subscriptions.iter().any(|s| s.tag == req.tag) {
-        return fail(format!("Подписка «{}» не найдена", req.tag));
-    }
-    for sub in &mut store.subscriptions {
-        sub.proxy = sub.tag == req.tag;
-    }
-    if let Err(e) = save_store(&store).await {
-        return fail(e);
-    }
-    log(
-        "INFO",
-        format!("Подписка «{}» назначена для проксируемого трафика", req.tag),
-    );
-    let restart_error = finish_change(&mut store, false).await;
-    Json(json!({ "success": true, "subscriptions": list_to_api(&store.subscriptions), "restart_error": restart_error }))
 }
 
 #[derive(Deserialize, Default)]
