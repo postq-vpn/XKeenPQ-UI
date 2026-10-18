@@ -234,27 +234,39 @@ EOF
   chmod +x $XKEENUI_INIT
 }
 
-# Ставит XKeen без вопросов его же установщиком: тот в конце запускает интерактивный `xkeen -i`,
-# поэтому последняя строка заменяется на `xkeen $XKEEN_AUTO_ARGS`.
-install_xkeen_auto() {
-  local installer="/opt/tmp/xkeen-install.sh"
+XKEEN_INSTALLER_FILE="/opt/tmp/xkeen-install.sh"
+
+# Скачивает установщик XKeen и готовит его к работе без вопросов: в конце он запускает
+# интерактивный `xkeen -i`, эта строка заменяется на `xkeen $XKEEN_AUTO_ARGS`.
+# Роутер при этом не меняется; при ошибке выводит причину и возвращает 1.
+fetch_xkeen_installer() {
+  local installer="$XKEEN_INSTALLER_FILE"
   mkdir -p /opt/tmp
   ( curl -Lsf "$XKEEN_INSTALLER" -o "$installer" || curl -Lsf "https://gh-proxy.com/$XKEEN_INSTALLER" -o "$installer" ) &
   if ! spinner $! "Загрузка установщика XKeen..."; then
     printf "${RED_BOLD}\n Не удалось загрузить установщик XKeen.${NCN}"
-    exit 1
+    return 1
   fi
   sed -i "s|^exec /opt/sbin/xkeen -i\$|exec /opt/sbin/xkeen $XKEEN_AUTO_ARGS|" "$installer"
   if ! grep -q "^exec /opt/sbin/xkeen $XKEEN_AUTO_ARGS\$" "$installer"; then
     rm -f "$installer"
     printf "${RED_BOLD}\n Установщик XKeen изменился, автоустановка невозможна.${NC}\n"
     printf " Установите XKeen по инструкции https://github.com/jameszeroX/XKeen и запустите эту команду снова.\n\n"
-    exit 1
+    return 1
   fi
+}
+
+# Запускает подготовленный установщик XKeen
+run_xkeen_installer() {
   printf "${INFO} Установка XKeen...${NCN}"
   # stdin не из конвейера curl | sh: иначе установщик прочитает остаток этого скрипта
-  ( cd /opt/tmp && sh "$installer" --stable ) < /dev/null
-  rm -f "$installer"
+  ( cd /opt/tmp && sh "$XKEEN_INSTALLER_FILE" --stable ) < /dev/null
+  rm -f "$XKEEN_INSTALLER_FILE"
+}
+
+install_xkeen_auto() {
+  fetch_xkeen_installer || exit 1
+  run_xkeen_installer
 }
 
 # Панель работает только с Xray. `xkeen -xray` останавливает Mihomo и переключает init-скрипт XKeen;
@@ -343,44 +355,139 @@ write_rci_token() {
     printf "${ERROR} Добавьте токен в ${XKEEN_CONFIG} вручную: \"rci_token\": \"<токен>\" в разделе \"xkeen\".${NCN}"
     exit 1
   else
-    printf '{\n  "xkeen": {\n    "rci_token": "%s"\n  }\n}\n' "$TOKEN" > "$XKEEN_CONFIG"
+    # Токен даёт права admin: файл только для root, как его создаёт сам XKeen
+    ( umask 077; printf '{\n  "xkeen": {\n    "rci_token": "%s"\n  }\n}\n' "$TOKEN" > "$XKEEN_CONFIG" )
   fi
+  chmod 600 "$XKEEN_CONFIG" 2>/dev/null
 }
 
 saved_rci_token() {
   sed -n 's/.*"rci_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$XKEEN_CONFIG" 2>/dev/null | head -n 1
 }
 
-# KeeneticOS 5.2 и новее пускают XKeen к RCI только с токеном из xkeen.json. Токен из token=…
-# записывается туда; без него скрипт выпускает токен сам. Без рабочего токена установка не начинается.
-prepare_rci_token() {
-  local manual=false
-  if [ -n "$TOKEN" ]; then
-    manual=true
-    case "$TOKEN" in
-      *[!A-Za-z0-9._~-]*) printf "${ERROR} Токен содержит недопустимые символы.${NCN}"; exit 1 ;;
-    esac
-    write_rci_token
-  fi
-  case "$(rci_code "$(saved_rci_token)")" in
-    401|403) ;;
-    *) return 0 ;;
+# Терминал пользователя: при `curl … | sh` stdin занят скриптом, ввод читается отсюда
+TTY_DEV="/dev/tty"
+
+rci_accepts() {
+  case "$(rci_code "$1")" in
+    401|403) return 1 ;;
   esac
-  if [ "$manual" = true ]; then
-    printf "${ERROR} Роутер не принял токен доступа. Создайте новый и запустите команду снова.${NCN}"
+  return 0
+}
+
+valid_token() {
+  case "$1" in
+    ''|*[!A-Za-z0-9._~-]*) return 1 ;;
+  esac
+  return 0
+}
+
+# Рабочего токена нет: объясняем, где его создать, и просим вставить. $1 — почему его нет.
+# Без терминала (ssh без -t, cron) спросить нельзя — подсказка про token=… и выход.
+ask_rci_token() {
+  local reason="$1" ip input
+  ip=$(ip -4 a s br0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p'); ip=${ip:-"IP_роутера"}
+  printf "\n${YELLOW} Нужен токен доступа к роутеру${NC}\n\n"
+  printf " На KeeneticOS 5.2 и новее XKeen и панель работают с роутером только по токену доступа.\n"
+  printf " $reason, создайте токен вручную:\n\n"
+  printf "   1. Откройте веб-интерфейс роутера: ${GREEN_BOLD}http://$ip${NC}\n"
+  printf "   2. Раздел «Пользователи и доступ» → «Токены доступа» → «Добавить токен»\n"
+  printf "   3. Скопируйте токен и вставьте его ниже\n\n"
+  # Проверка в подоболочке: неудачный `exec 3<` завершил бы весь скрипт
+  if ! ( : < "$TTY_DEV" ) 2>/dev/null; then
+    printf " Терминал недоступен — добавьте токен в команду установки:\n"
+    printf " ${GREEN_BOLD}… | sh -s -- auto token=ВАШ_ТОКЕН${NCN}"
     exit 1
   fi
+  exec 3< "$TTY_DEV"
+  printf " Чтобы прервать установку, нажмите ${GREEN_BOLD}Ctrl+C${NC}\n\n"
+  # Спрашиваем, пока роутер не примет токен: пустой Enter ничего не делает, выход — только Ctrl+C
+  while :; do
+    printf " Токен: "
+    if ! read -r input <&3; then
+      # Терминал закрылся (Ctrl+D, обрыв SSH) — ждать ввода больше неоткуда
+      exec 3<&-
+      printf "${ERROR} Ввод прерван, установка остановлена.${NCN}"
+      exit 1
+    fi
+    input=$(printf '%s' "$input" | tr -d ' \t\r')
+    [ -z "$input" ] && continue
+    if ! valid_token "$input"; then
+      printf "${RED} Токен содержит недопустимые символы, скопируйте его ещё раз.${NC}\n"
+      continue
+    fi
+    TOKEN="$input"
+    write_rci_token
+    if rci_accepts "$TOKEN"; then
+      exec 3<&-
+      printf "${GREEN} Токен принят${NC}\n"
+      return 0
+    fi
+    printf "${RED} Роутер не принял этот токен. Проверьте его или создайте новый.${NC}\n"
+  done
+}
+
+# KeeneticOS 5.2 и новее пускают XKeen к RCI только с токеном из xkeen.json. Токен из token=…
+# записывается туда; без него скрипт выпускает токен сам, а если не вышло — просит вставить вручную.
+# Без рабочего токена установка не начинается.
+prepare_rci_token() {
+  if [ -n "$TOKEN" ]; then
+    if ! valid_token "$TOKEN"; then
+      ask_rci_token "Токен из команды содержит недопустимые символы"
+      return
+    fi
+    write_rci_token
+    rci_accepts "$TOKEN" && return 0
+    ask_rci_token "Роутер не принял токен из команды"
+    return
+  fi
+  rci_accepts "$(saved_rci_token)" && return 0
   if generate_rci_token; then
     write_rci_token
-    case "$(rci_code "$TOKEN")" in
-      401|403) ;;
-      *) printf " Токен доступа к роутеру получен\n"; return 0 ;;
-    esac
+    if rci_accepts "$TOKEN"; then
+      printf " Токен доступа к роутеру получен\n"
+      return 0
+    fi
+    # Роутер не принял выпущенный токен — не оставляем его
+    revoke_own_tokens ""
   fi
-  printf "${ERROR} Не удалось получить токен доступа к роутеру автоматически.${NC}\n"
-  printf " Создайте его в веб-интерфейсе роутера в разделе «Пользователи и доступ» и добавьте в команду:\n"
-  printf " ${GREEN_BOLD}… | sh -s -- auto token=ВАШ_ТОКЕН${NCN}"
-  exit 1
+  ask_rci_token "Получить его автоматически не удалось"
+}
+
+# Версия XKeen из его файла переменных
+xkeen_version() {
+  sed -n 's/^xkeen_current_version=//p' /opt/sbin/.xkeen/01_info/01_info_variable.sh 2>/dev/null | head -n 1 | tr -d "\"' "
+}
+
+# Старый XKeen (1.x, оригинал Skrill0) не умеет режим auto, GeoIPSET и токены KeeneticOS 5.2.
+# Заменяется установщиком jameszeroX поверх: конфиги Xray и списки XKeen остаются, настройки
+# автозапуска переносятся. Перед заменой — копия конфигов и остановка, чтобы не остались правила
+# файрвола старой версии.
+upgrade_xkeen() {
+  local old_version backup was_running=false
+  old_version=$(xkeen_version)
+  backup="/opt/backups/xray-configs-$(date +%Y-%m-%d_%H-%M-%S)"
+  printf "${INFO} Найден XKeen ${old_version:-старой версии}, обновляем до актуальной${NCN}"
+  if [ -d /opt/etc/xray/configs ]; then
+    ( mkdir -p "$backup" && cp -r /opt/etc/xray/configs/. "$backup/" ) &
+    if ! spinner $! "Копия конфигов Xray: $backup"; then
+      printf "${RED_BOLD}\n Не удалось сохранить конфиги Xray, обновление XKeen отменено.${NCN}"
+      exit 1
+    fi
+  fi
+  # Установщик готовится до остановки: если он не скачается, старый XKeen продолжает работать
+  fetch_xkeen_installer || exit 1
+  pidof xray &>/dev/null && was_running=true
+  "$XKEEN_BIN" -stop < /dev/null &>/dev/null &
+  spinner $! "Остановка XKeen ${old_version}..."
+  run_xkeen_installer
+  if ! grep -q 'get_auto_arg' "$XKEEN_BIN" 2>/dev/null; then
+    [ "$was_running" = true ] && { "$XKEEN_BIN" -start < /dev/null &>/dev/null || :; }
+    printf "${ERROR} Не удалось обновить XKeen. Конфиги Xray сохранены в $backup${NCN}"
+    exit 1
+  fi
+  [ "$was_running" = true ] && { "$XKEEN_BIN" -start < /dev/null &>/dev/null || :; }
+  printf "${SUCCESS} XKeen обновлён: ${old_version:-старая версия} → $(xkeen_version)${NCN}"
 }
 
 auto_setup() {
@@ -388,13 +495,9 @@ auto_setup() {
   prepare_rci_token
   if [ ! -x "$XKEEN_BIN" ]; then
     install_xkeen_auto
+  elif ! grep -q 'get_auto_arg' "$XKEEN_BIN"; then
+    upgrade_xkeen
   elif [ ! -x "$XRAY_BIN" ]; then
-    # Без режима auto старый XKeen ждёт ответов в меню, а их неоткуда взять
-    if ! grep -q 'get_auto_arg' "$XKEEN_BIN"; then
-      printf "${ERROR} Установленная версия XKeen не поддерживает автоустановку.${NC}\n"
-      printf " Обновите XKeen командой ${GREEN_BOLD}xkeen -uk${NC} и запустите эту команду снова.\n\n"
-      exit 1
-    fi
     printf "${INFO} XKeen уже установлен, ставим ядро Xray...${NCN}"
     "$XKEEN_BIN" -ux auto < /dev/null
   else
