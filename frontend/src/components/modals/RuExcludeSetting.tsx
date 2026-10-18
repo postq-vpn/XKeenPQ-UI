@@ -10,6 +10,8 @@ interface GeoIpSetResponse {
   success: boolean
   enabled: boolean
   available?: boolean
+  /** XKeen умеет -gips/-dgips (форк jameszeroX 2.0+) */
+  supported?: boolean
   error?: string
 }
 
@@ -31,6 +33,7 @@ export function RuExcludeSetting() {
   }, [])
 
   if (!state?.available) return null
+  const supported = state.supported !== false
 
   async function toggle(enabled: boolean) {
     setBusy(true)
@@ -54,15 +57,23 @@ export function RuExcludeSetting() {
         <FieldContent>
           <FieldLabel htmlFor="ru-exclude">Исключить российские IP-адреса из проксирования</FieldLabel>
           <FieldDescription className="text-[13px]">
-            {busy
-              ? 'Роутер загружает списки, это может занять пару минут…'
-              : 'IP-подсети России (GeoIPSET) идут напрямую. Списки обновляются вместе с геобазами XKeen'}
+            {!supported
+              ? 'Установленная версия XKeen этого не умеет. Нужен XKeen 2.0 или новее'
+              : busy
+                ? 'Роутер загружает списки, это может занять пару минут…'
+                : 'IP-подсети России (GeoIPSET) идут напрямую. Списки обновляются вместе с геобазами XKeen'}
           </FieldDescription>
         </FieldContent>
         {busy ? (
           <Spinner className="size-4" />
         ) : (
-          <Switch id="ru-exclude" checked={state.enabled} onCheckedChange={toggle} aria-label="Исключить российские IP-адреса" />
+          <Switch
+            id="ru-exclude"
+            checked={state.enabled}
+            disabled={!supported}
+            onCheckedChange={toggle}
+            aria-label="Исключить российские IP-адреса"
+          />
         )}
       </Field>
     </>
