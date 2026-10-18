@@ -521,6 +521,8 @@ async fn main() {
         .route("/api/subscriptions/device", get(subscriptions::get_device))
         .route("/api/subscriptions/proxy", post(subscriptions::post_proxy))
         .route("/api/subscriptions/default-routing", get(subscriptions::get_default_routing))
+        .route("/api/subscriptions/routing-status", get(subscriptions::get_routing_status))
+        .route("/api/subscriptions/geo-download", post(subscriptions::post_geo_download))
         .route("/api/device-list", get(api_relay::get_device_list))
         .route("/api/update", post(updater::post_update))
         .route("/api/geo", get(geo::get_geo))

@@ -5,6 +5,7 @@
 //! под чистым тегом `<tag>` работает выбранный пользователем сервер — на него ссылаются правила.
 
 mod device;
+mod geo_files;
 mod parser;
 mod ping;
 pub(crate) mod routing;
@@ -219,6 +220,47 @@ impl Subscription {
 #[serde(default)]
 struct Store {
     subscriptions: Vec<Subscription>,
+    /// Routing по умолчанию ещё не поставлен из-за нехватки geo-файлов или outbound'ов:
+    /// планировщик пробует снова, интерфейс показывает предупреждение.
+    routing_pending: bool,
+    /// Геобазы шаблона обновляются раз в сутки (включается кнопкой «Скачать геобазы»).
+    geo_auto_update: bool,
+    geo_last_update: i64,
+}
+
+pub use geo_files::post_geo_download;
+
+/// Ставит routing по умолчанию на подписку «Для прокси» (или первую) и запоминает, удалось ли.
+/// Возвращает true, если `05_routing.json` записан.
+async fn apply_default_routing(store: &mut Store) -> bool {
+    let Some(target) = store
+        .subscriptions
+        .iter()
+        .find(|s| s.proxy)
+        .or_else(|| store.subscriptions.first())
+        .map(|s| s.tag.clone())
+    else {
+        store.routing_pending = false;
+        return false;
+    };
+    match routing::ensure_default(&target).await {
+        Ok(routing::DefaultRouting::Created) => {
+            store.routing_pending = false;
+            true
+        }
+        Ok(routing::DefaultRouting::Kept) => {
+            store.routing_pending = false;
+            false
+        }
+        Ok(routing::DefaultRouting::Missing(_)) => {
+            store.routing_pending = true;
+            false
+        }
+        Err(e) => {
+            log("ERROR", format!("Не удалось создать маршрутизацию по умолчанию: {e}"));
+            false
+        }
+    }
 }
 
 async fn load_store() -> Store {
@@ -755,11 +797,40 @@ pub fn start_scheduler(state: AppState) {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(SCHEDULER_TICK).await;
+            // Геобазы качаются без блокировки подписок: загрузка может идти минуту и дольше.
+            let geo_due = {
+                let store = load_store().await;
+                store.geo_auto_update && now() - store.geo_last_update >= geo_files::GEO_UPDATE_INTERVAL
+            };
+            let geo_updated = if geo_due {
+                let (updated, errors) = geo_files::download_geo_files(&state, false).await;
+                for e in &errors {
+                    log("WARN", format!("Автообновление геобаз: {e}"));
+                }
+                let _guard = STORE_LOCK.lock().await;
+                let mut store = load_store().await;
+                // При ошибке повторим через час, а не через сутки.
+                store.geo_last_update = if errors.is_empty() {
+                    now()
+                } else {
+                    now() - geo_files::GEO_UPDATE_INTERVAL + 3600
+                };
+                if let Err(e) = save_store(&store).await {
+                    log("ERROR", format!("Ошибка записи {}: {}", SUBSCRIPTIONS_FILE, e));
+                }
+                !updated.is_empty()
+            } else {
+                false
+            };
             let _guard = STORE_LOCK.lock().await;
             let mut store = load_store().await;
             let now = now();
-            let mut touched = false;
-            let mut changed = false;
+            let mut touched = geo_updated;
+            let mut changed = geo_updated;
+            if store.routing_pending && apply_default_routing(&mut store).await {
+                touched = true;
+                changed = true;
+            }
             for sub in store.subscriptions.iter_mut().filter(|s| s.is_due(now)) {
                 touched = true;
                 changed |= refresh(&state, sub).await.unwrap_or(false);
@@ -847,6 +918,17 @@ pub async fn get_default_routing() -> impl IntoResponse {
         [(axum::http::header::CONTENT_TYPE, "application/json; charset=utf-8")],
         routing::default_routing(target),
     )
+}
+
+/// Routing по умолчанию не поставлен: чего не хватает (интерфейс показывает предупреждение).
+pub async fn get_routing_status() -> impl IntoResponse {
+    let pending = load_store().await.routing_pending;
+    let missing = if pending {
+        routing::missing_default_routing_requirements().await
+    } else {
+        vec![]
+    };
+    Json(json!({ "success": true, "pending": pending, "missing": missing, "assets_dir": XRAY_ASSET_DIR }))
 }
 
 pub async fn get_subscriptions() -> impl IntoResponse {
@@ -974,11 +1056,14 @@ pub async fn post_subscription(State(state): State<AppState>, Json(mut sub): Jso
     if let Err(e) = save_store(&store).await {
         return fail(e);
     }
-    // Первая подписка и маршрутизации ещё нет — создаём routing по умолчанию.
-    if first
-        && let Err(e) = routing::ensure_default(&sub.tag).await {
-            log("ERROR", format!("Не удалось создать маршрутизацию по умолчанию: {e}"));
+    // Первая подписка — ставим routing по умолчанию (поверх шаблона XKeen). Если не хватает
+    // geo-файлов, планировщик поставит его, когда они появятся, а интерфейс предупредит.
+    if first {
+        apply_default_routing(&mut store).await;
+        if let Err(e) = save_store(&store).await {
+            log("ERROR", format!("Ошибка записи {}: {}", SUBSCRIPTIONS_FILE, e));
         }
+    }
     let restart_error = finish_change(&mut store, true).await;
     // finish_change мог назначить подписку «Для прокси» — отдаём актуальную версию.
     let saved = store.subscriptions.iter().find(|s| s.tag == sub.tag).unwrap_or(&sub);
@@ -1027,6 +1112,9 @@ pub async fn delete_subscription(Query(q): Query<TagQuery>) -> impl IntoResponse
     store.subscriptions.retain(|s| s.tag != q.tag);
     if store.subscriptions.len() == before {
         return fail(format!("Подписка «{}» не найдена", q.tag));
+    }
+    if store.subscriptions.is_empty() {
+        store.routing_pending = false;
     }
     if let Err(e) = save_store(&store).await {
         return fail(e);

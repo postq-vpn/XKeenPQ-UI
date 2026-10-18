@@ -168,7 +168,7 @@ pub fn default_routing(target: &str) -> String {
 }
 
 /// Geo-файлы, на которые ссылается шаблон (`ext:<файл>:<тег>`).
-fn default_routing_assets() -> Vec<String> {
+pub(super) fn default_routing_assets() -> Vec<String> {
     let re = Regex::new(r#""ext:([^:"]+):"#).unwrap();
     let mut files: Vec<String> = re.captures_iter(DEFAULT_ROUTING).map(|c| c[1].to_string()).collect();
     files.sort();
@@ -176,40 +176,69 @@ fn default_routing_assets() -> Vec<String> {
     files
 }
 
-/// Записывает routing по умолчанию в `05_routing.json`, если ни в одном конфиге нет правил.
-/// Не трогает конфиги, если какой-то из них не разобрался: в нём могут быть правила.
-pub async fn ensure_default(target: &str) -> Result<bool, String> {
+/// Итог установки routing по умолчанию.
+#[derive(Debug, PartialEq)]
+pub enum DefaultRouting {
+    /// Шаблон записан в `05_routing.json`.
+    Created,
+    /// Не трогаем: правила есть в других файлах или конфиг не разобрался.
+    Kept,
+    /// Не хватает geo-файлов или outbound'ов `direct`/`block` — шаблон с ними Xray не запустит.
+    Missing(Vec<String>),
+}
+
+/// Чего не хватает для шаблона: geo-файлы в `XRAY_ASSET_DIR` и outbound'ы `direct`/`block`.
+fn missing_requirements(files: &[ConfFile]) -> Vec<String> {
+    let assets = std::path::Path::new(XRAY_ASSET_DIR);
+    let mut missing: Vec<String> = default_routing_assets()
+        .into_iter()
+        .filter(|f| !assets.join(f).exists())
+        .collect();
+    let tags: HashSet<String> = outbound_tags(files).into_iter().map(|(t, _)| t).collect();
+    missing.extend(
+        KEEP_TAGS
+            .iter()
+            .filter(|t| !tags.contains(**t))
+            .map(|t| format!("outbound «{t}»")),
+    );
+    missing
+}
+
+pub async fn missing_default_routing_requirements() -> Vec<String> {
+    missing_requirements(&read_conf_files().await)
+}
+
+/// Ставит routing по умолчанию в `05_routing.json` (прежний файл — в `05_routing.json.bak`),
+/// в том числе поверх шаблона XKeen. Не трогает конфиги, если правила есть в других файлах
+/// (их пользователь настроил сам) или какой-то конфиг не разобрался (в нём могут быть правила).
+pub async fn ensure_default(target: &str) -> Result<DefaultRouting, String> {
     let files = read_conf_files().await;
     if files.iter().any(|f| f.json.is_none()) {
-        return Ok(false);
+        log("WARN", "Маршрутизация по умолчанию не создана: есть конфиг с ошибкой".into());
+        return Ok(DefaultRouting::Kept);
     }
-    let has_rules = files.iter().any(|f| {
+    let is_default_file = |f: &ConfFile| f.path.file_name().is_some_and(|n| n == DEFAULT_ROUTING_FILE);
+    let rules_elsewhere = files.iter().filter(|f| !is_default_file(f)).any(|f| {
         f.json
             .as_ref()
             .and_then(|j| j.pointer("/routing/rules")?.as_array())
             .is_some_and(|rules| !rules.is_empty())
     });
-    if has_rules {
-        return Ok(false);
+    if rules_elsewhere {
+        log(
+            "INFO",
+            format!("Маршрутизация по умолчанию не создана: правила уже есть вне {DEFAULT_ROUTING_FILE}"),
+        );
+        return Ok(DefaultRouting::Kept);
     }
 
-    // Без geo-файлов или outbound'ов direct/block Xray не запустится с этим шаблоном.
-    let assets = std::path::Path::new(XRAY_ASSET_DIR);
-    let missing: Vec<String> = default_routing_assets()
-        .into_iter()
-        .filter(|f| !assets.join(f).exists())
-        .collect();
+    let missing = missing_requirements(&files);
     if !missing.is_empty() {
         log(
             "WARN",
-            format!("Маршрутизация по умолчанию не создана: нет файлов {} в {}", missing.join(", "), XRAY_ASSET_DIR),
+            format!("Маршрутизация по умолчанию не создана: нет {} ({})", missing.join(", "), XRAY_ASSET_DIR),
         );
-        return Ok(false);
-    }
-    let tags: HashSet<String> = outbound_tags(&files).into_iter().map(|(t, _)| t).collect();
-    if let Some(tag) = KEEP_TAGS.iter().find(|t| !tags.contains(**t)) {
-        log("WARN", format!("Маршрутизация по умолчанию не создана: нет outbound «{tag}»"));
-        return Ok(false);
+        return Ok(DefaultRouting::Missing(missing));
     }
 
     let path = std::path::Path::new(XRAY_CONF_DIR).join(DEFAULT_ROUTING_FILE);
@@ -230,7 +259,7 @@ pub async fn ensure_default(target: &str) -> Result<bool, String> {
         "INFO",
         format!("Маршрутизация: создан {} по умолчанию для подписки «{}»", path.display(), target),
     );
-    Ok(true)
+    Ok(DefaultRouting::Created)
 }
 
 /// Переименовывает тег подписки в конфигах (кроме файлов подписок): `"old"` и серверы `"old--…"`
@@ -323,6 +352,19 @@ mod tests {
         assert!(out.contains(r#""x-subscription_1""#));
         assert!(out.contains(r#""subscription_1.example""#));
         assert!(out.contains("// правило"));
+    }
+
+    #[test]
+    fn missing_requirements_lists_assets_and_outbounds() {
+        let missing = missing_requirements(&[]);
+        assert!(missing.contains(&"outbound «direct»".to_string()));
+        assert!(missing.contains(&"outbound «block»".to_string()));
+        let with_outbounds = ConfFile {
+            path: "04_outbounds.json".into(),
+            text: String::new(),
+            json: Some(json!({ "outbounds": [{ "tag": "direct" }, { "tag": "block" }] })),
+        };
+        assert!(missing_requirements(&[with_outbounds]).iter().all(|m| !m.starts_with("outbound")));
     }
 
     #[test]

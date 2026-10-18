@@ -15,6 +15,7 @@ import { SettingsModal } from './components/modals/Settings'
 import { TemplateModal } from './components/modals/Templates'
 import { UpdateModal } from './components/modals/Update'
 import { XrayServerDialog, XraySubscriptionsModal } from './components/modals/XraySubscriptions'
+import { RoutingWarning } from './components/status/RoutingWarning'
 import { StatusBar } from './components/status/StatusBar'
 import { Toast } from './components/ui/toast'
 import { apiCall } from './lib/api'
@@ -471,6 +472,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
             }}
             onLogout={logout}
           />
+          <RoutingWarning reloadKey={subsReloadKey} />
           <div className={cn(view !== 'servers' && 'hidden')}>
             <XraySubscriptionsModal
               asPage
