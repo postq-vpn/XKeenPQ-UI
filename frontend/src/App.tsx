@@ -26,7 +26,7 @@ import { ONLINE_PING_INTERVAL_MS, LOCAL_ROUTER_ID, routerId } from './lib/multi-
 import { applyRoutersFromSettings, refreshAllOnline } from './lib/multi-routers/actions'
 import { useRoutersStore } from './lib/multi-routers/store'
 import { getAppState, useAppActions, useModalContext, useSettings } from './lib/store'
-import { useTechMenuHotkey } from './lib/techMenu'
+import { isTechMenuUnlocked, lockTechMenuOnVersionChange, useTechMenuHotkey, useTechMenuUnlocked } from './lib/techMenu'
 import { applyTheme, THEME_MEDIA_QUERY } from './lib/theme'
 import { DEFAULT_XRAY_REPO, type Config, type ThemeMode, type XraySubscription } from './lib/types'
 import { parse as parseJsonc } from 'jsonc-parser'
@@ -189,6 +189,8 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
           isOutdatedUI: !!ui.outdated,
           isOutdatedCore,
         })
+        // Новая версия панели (или первый запуск после оригинальной XKeen UI) — меню снова скрыто.
+        lockTechMenuOnVersionChange(ui.version)
 
         if (Object.keys(coreVersions).length > 0) {
           const appState = getAppState()
@@ -285,7 +287,8 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
   // Главный блок: «Подписка и серверы», журнал или редактор файла, выбранного в меню «Технические файлы».
   const [view, setViewState] = useState<View>(() => {
     try {
-      const saved = localStorage.getItem('ui:view')
+      // Журнал и файлы открываются только из «Технического меню»: пока оно скрыто — главная.
+      const saved = isTechMenuUnlocked() ? localStorage.getItem('ui:view') : null
       return saved === 'files' || saved === 'log' ? saved : 'servers'
     } catch {
       return 'servers'
@@ -299,6 +302,15 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
       /* без хранилища выбор живёт до перезагрузки */
     }
   }, [])
+  // Меню скрыли (сочетанием клавиш или после обновления) — с журнала и файлов уходим на главную.
+  const techMenuUnlocked = useTechMenuUnlocked()
+  // Только в момент скрытия: журнал или файл, открытые самой панелью (например, после
+  // «Добавить» → «В начало»), не трогаем.
+  const wasUnlockedRef = useRef(techMenuUnlocked)
+  useEffect(() => {
+    if (wasUnlockedRef.current && !techMenuUnlocked) setView('servers')
+    wasUnlockedRef.current = techMenuUnlocked
+  }, [techMenuUnlocked, setView])
   const [activeFile, setActiveFile] = useState<string | null>(null)
   const openFile = useCallback(
     (file: string) => {

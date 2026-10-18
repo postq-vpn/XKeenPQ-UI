@@ -32,6 +32,27 @@ const subscribe = (l: () => void) => {
 
 export const useTechMenuUnlocked = () => useSyncExternalStore(subscribe, () => unlocked)
 
+export const isTechMenuUnlocked = () => unlocked
+
+const VERSION_KEY = 'ui:version'
+
+/**
+ * После установки или обновления панели (в том числе поверх оригинальной XKeen UI, где ключа
+ * версии нет) меню снова скрыто. Возвращает true, если версия сменилась.
+ */
+export function lockTechMenuOnVersionChange(version: string) {
+  let previous: string | null = null
+  try {
+    previous = localStorage.getItem(VERSION_KEY)
+    localStorage.setItem(VERSION_KEY, version)
+  } catch {
+    return false
+  }
+  if (previous === version) return false
+  if (unlocked) setUnlocked(false)
+  return true
+}
+
 /** Глобальное сочетание клавиш; `onToggle` получает новое состояние. По e.code — работает в любой раскладке. */
 export function useTechMenuHotkey(onToggle: (unlocked: boolean) => void) {
   useEffect(() => {
