@@ -495,9 +495,6 @@ export function SettingsModal({ onOpenLog, onOpenFile }: SettingsModalProps) {
               className="border-border w-max shrink-0 justify-start gap-3 rounded-none border-b px-0 whitespace-nowrap"
             >
               <TabsTrigger value="general">Общие</TabsTrigger>
-              <TabsTrigger value="gui">Режим GUI</TabsTrigger>
-              <TabsTrigger value="updates">Обновления</TabsTrigger>
-              <TabsTrigger value="plugins">Плагины</TabsTrigger>
               {techMenu && <TabsTrigger value="tech">Техническое меню</TabsTrigger>}
             </TabsList>
           </div>
@@ -569,7 +566,19 @@ export function SettingsModal({ onOpenLog, onOpenFile }: SettingsModalProps) {
                 </FieldGroup>
               </TabsContent>
 
-              <TabsContent value="gui">
+              <TabsContent value="tech">
+                <TechMenuList
+                  onSelectLog={() => {
+                    close()
+                    onOpenLog()
+                  }}
+                  onSelectFile={(file) => {
+                    close()
+                    onOpenFile(file)
+                  }}
+                />
+                <Separator className="my-3" />
+                <p className="text-muted-foreground pt-4 pb-1 text-xs font-medium tracking-wider uppercase">Режим GUI</p>
                 <Alert className="my-2 border-amber-500/20 bg-amber-100 p-2.75 text-yellow-600 dark:bg-[#2a1f0d] dark:text-amber-400">
                   <IconAlertCircle className="size-4.5" />
                   <AlertDescription className="text-xs leading-4.25 tracking-wide text-yellow-600 dark:text-amber-400">
@@ -585,9 +594,8 @@ export function SettingsModal({ onOpenLog, onOpenFile }: SettingsModalProps) {
                     </Fragment>
                   ))}
                 </FieldGroup>
-              </TabsContent>
-
-              <TabsContent value="updates">
+                <Separator className="my-3" />
+                <p className="text-muted-foreground pt-4 pb-1 text-xs font-medium tracking-wider uppercase">Обновления</p>
                 <FieldGroup className="gap-0!">
                   {updateSettings.map((item) => (
                     <Fragment key={item.id}>
@@ -607,9 +615,8 @@ export function SettingsModal({ onOpenLog, onOpenFile }: SettingsModalProps) {
                   <Separator className="my-0" />
                   <ProxySettingsField githubProxies={settings.githubProxies} onAddProxy={addProxy} onRemoveProxy={removeProxy} />
                 </FieldGroup>
-              </TabsContent>
-
-              <TabsContent value="plugins">
+                <Separator className="my-3" />
+                <p className="text-muted-foreground pt-4 pb-1 text-xs font-medium tracking-wider uppercase">Плагины</p>
                 <Alert className="my-2 border-amber-500/20 bg-amber-100 p-2.75 text-yellow-600 dark:bg-[#2a1f0d] dark:text-amber-400">
                   <IconAlertCircle className="size-4.5" />
                   <AlertDescription className="text-xs leading-4.25 tracking-wide text-yellow-600 dark:text-amber-400">
@@ -625,19 +632,6 @@ export function SettingsModal({ onOpenLog, onOpenFile }: SettingsModalProps) {
                     </Fragment>
                   ))}
                 </FieldGroup>
-              </TabsContent>
-
-              <TabsContent value="tech">
-                <TechMenuList
-                  onSelectLog={() => {
-                    close()
-                    onOpenLog()
-                  }}
-                  onSelectFile={(file) => {
-                    close()
-                    onOpenFile(file)
-                  }}
-                />
               </TabsContent>
             </div>
           </ScrollArea>
