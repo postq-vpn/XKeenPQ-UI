@@ -26,6 +26,9 @@ XRAY_BIN="/opt/sbin/xray"
 # Init-скрипт XKeen: S05xkeen в текущих версиях, S99xkeen в старых
 XKEEN_INITS="/opt/etc/init.d/S05xkeen /opt/etc/init.d/S99xkeen"
 XKEEN_CONFIG="/opt/etc/xkeen/xkeen.json"
+NDMC="/bin/ndmc"
+# Метка токенов доступа, которые выпускает этот скрипт: по ней находятся и снимаются только свои
+TOKEN_LABEL="XKeenPQ-UI"
 XKEEN_INSTALLER="https://raw.githubusercontent.com/jameszeroX/XKeen/main/install.sh"
 # Пункты установки XKeen для режима auto: ядро Xray, геобазы, GeoIPSET, их автообновление и автозагрузка
 XKEEN_AUTO_ARGS="-i auto cores=xray"
@@ -284,37 +287,100 @@ rci_code() {
   fi
 }
 
-# KeeneticOS 5.2 и новее пускают XKeen к RCI только с токеном из xkeen.json.
-# Токен из token=… записывается туда до установки XKeen; без нужного токена установка не начинается.
+# Вывод консоли роутера без управляющих последовательностей (ndmc печатает ^[[K)
+ndmc_run() {
+  "$NDMC" -c "$1" 2>&1 | sed "s/$(printf '\033')\[[0-9;]*[A-Za-z]//g"
+}
+
+# Выпускает токен доступа через консоль роутера (KeeneticOS 5.2+): локально, без пароля.
+# Прежние токены с меткой $TOKEN_LABEL снимаются после выпуска нового, чужие не трогаются.
+generate_rci_token() {
+  [ -x "$NDMC" ] || return 1
+  local out parsed new_id tok id
+  out=$(ndmc_run "authentication token generate $TOKEN_LABEL")
+  # До 5.2 такой команды нет
+  case "$out" in *"no such command"*|*"not found"*|*"unknown command"*|*Command::*rror*) return 1 ;; esac
+  # Токен — в строке «value:»; длинное значение ndmc переносит на следующие строки без «:»
+  parsed=$(printf '%s\n' "$out" | awk '
+    { sub(/^[ \t]+/, ""); sub(/[ \t]+$/, "") }
+    in_val && ($0 == "" || /:/) { in_val = 0; got = 1 }
+    in_val { val = val $0; next }
+    got { next }
+    /^id:/ { id = $2 }
+    /^value:/ { in_val = 1; v = $0; sub(/^value:[ \t]*/, "", v); val = v }
+    END { print id " " val }')
+  new_id=${parsed%% *}
+  tok=${parsed#* }
+  case "$tok" in *[!A-Za-z0-9]*) tok="" ;; esac
+  [ "${#tok}" -ge 32 ] || tok=""
+  if [ -z "$tok" ]; then
+    # Выпущен, но не разобран — снимаем, чтобы не оставлять на роутере бессрочный токен admin
+    revoke_own_tokens ""
+    return 1
+  fi
+  revoke_own_tokens "$new_id"
+  ndmc_run "system configuration save" >/dev/null
+  TOKEN="$tok"
+}
+
+# Снимает токены с меткой $TOKEN_LABEL, кроме токена с id $1
+revoke_own_tokens() {
+  local id
+  for id in $(ndmc_run "show authentication token" | awk -v want="$TOKEN_LABEL" -v keep="$1" '
+    { sub(/^[ \t]+/, "") }
+    /^id:/ { id = $2 }
+    /^user-data:/ { v = $0; sub(/^user-data:[ \t]*/, "", v); if (v == want && id != keep) print id }'); do
+    ndmc_run "authentication token delete $id" >/dev/null
+  done
+}
+
+# Записывает $TOKEN в xkeen.json: заменяет значение rci_token или создаёт файл
+write_rci_token() {
+  mkdir -p "${XKEEN_CONFIG%/*}"
+  if grep -qs '"rci_token"' "$XKEEN_CONFIG"; then
+    sed -i "s|\"rci_token\"[[:space:]]*:[[:space:]]*\"[^\"]*\"|\"rci_token\": \"$TOKEN\"|" "$XKEEN_CONFIG"
+  elif grep -qs '"xkeen"' "$XKEEN_CONFIG"; then
+    printf "${ERROR} Добавьте токен в ${XKEEN_CONFIG} вручную: \"rci_token\": \"<токен>\" в разделе \"xkeen\".${NCN}"
+    exit 1
+  else
+    printf '{\n  "xkeen": {\n    "rci_token": "%s"\n  }\n}\n' "$TOKEN" > "$XKEEN_CONFIG"
+  fi
+}
+
+saved_rci_token() {
+  sed -n 's/.*"rci_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$XKEEN_CONFIG" 2>/dev/null | head -n 1
+}
+
+# KeeneticOS 5.2 и новее пускают XKeen к RCI только с токеном из xkeen.json. Токен из token=…
+# записывается туда; без него скрипт выпускает токен сам. Без рабочего токена установка не начинается.
 prepare_rci_token() {
+  local manual=false
   if [ -n "$TOKEN" ]; then
+    manual=true
     case "$TOKEN" in
       *[!A-Za-z0-9._~-]*) printf "${ERROR} Токен содержит недопустимые символы.${NCN}"; exit 1 ;;
     esac
-    mkdir -p "${XKEEN_CONFIG%/*}"
-    if grep -qs '"rci_token"' "$XKEEN_CONFIG"; then
-      sed -i "s|\"rci_token\"[[:space:]]*:[[:space:]]*\"[^\"]*\"|\"rci_token\": \"$TOKEN\"|" "$XKEEN_CONFIG"
-    elif grep -qs '"xkeen"' "$XKEEN_CONFIG"; then
-      printf "${ERROR} Добавьте токен в ${XKEEN_CONFIG} вручную: \"rci_token\": \"<токен>\" в разделе \"xkeen\".${NCN}"
-      exit 1
-    else
-      printf '{\n  "xkeen": {\n    "rci_token": "%s"\n  }\n}\n' "$TOKEN" > "$XKEEN_CONFIG"
-    fi
+    write_rci_token
   fi
-  local token
-  token=$(sed -n 's/.*"rci_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$XKEEN_CONFIG" 2>/dev/null | head -n 1)
-  case "$(rci_code "$token")" in
-    401|403)
-      if [ -n "$token" ]; then
-        printf "${ERROR} Роутер не принял токен доступа. Создайте новый и запустите команду снова.${NCN}"
-      else
-        printf "${ERROR} Прошивке нужен токен доступа.${NC}\n"
-        printf " Создайте его в веб-интерфейсе роутера в разделе «Пользователи и доступ» и добавьте в команду:\n"
-        printf " ${GREEN_BOLD}… | sh -s -- auto token=ВАШ_ТОКЕН${NCN}"
-      fi
-      exit 1
-      ;;
+  case "$(rci_code "$(saved_rci_token)")" in
+    401|403) ;;
+    *) return 0 ;;
   esac
+  if [ "$manual" = true ]; then
+    printf "${ERROR} Роутер не принял токен доступа. Создайте новый и запустите команду снова.${NCN}"
+    exit 1
+  fi
+  if generate_rci_token; then
+    write_rci_token
+    case "$(rci_code "$TOKEN")" in
+      401|403) ;;
+      *) printf " Токен доступа к роутеру получен\n"; return 0 ;;
+    esac
+  fi
+  printf "${ERROR} Не удалось получить токен доступа к роутеру автоматически.${NC}\n"
+  printf " Создайте его в веб-интерфейсе роутера в разделе «Пользователи и доступ» и добавьте в команду:\n"
+  printf " ${GREEN_BOLD}… | sh -s -- auto token=ВАШ_ТОКЕН${NCN}"
+  exit 1
 }
 
 auto_setup() {

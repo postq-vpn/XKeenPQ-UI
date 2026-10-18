@@ -120,15 +120,6 @@ sed -i 's,http://bin.entware.net/,http://mirrors.nju.edu.cn/entware/,g' /opt/etc
 curl -L https://raw.githubusercontent.com/postq-vpn/XKeenPQ-UI/main/setup.sh | sh -s -- auto
 ```
 
-На **KeeneticOS 5.2 и новее** XKeen нужен токен доступа к роутеру. Создайте его в веб-интерфейсе в разделе
-«Пользователи и доступ», скопируйте и добавьте в команду:
-
-```sh
-curl -L https://raw.githubusercontent.com/postq-vpn/XKeenPQ-UI/main/setup.sh | sh -s -- auto token=ВАШ_ТОКЕН
-```
-
-Если токен нужен, а вы его не указали, команда остановится до начала установки и подскажет, что делать.
-
 Команда ставит всё без вопросов:
 
 - [XKeen](https://github.com/jameszeroX/XKeen) с ядром Xray, геобазами, списками российских IP-адресов
@@ -136,6 +127,14 @@ curl -L https://raw.githubusercontent.com/postq-vpn/XKeenPQ-UI/main/setup.sh | s
 - панель XKeenPQ-UI.
 
 Установка занимает несколько минут — XKeen скачивает ядро и геобазы с GitHub.
+
+На **KeeneticOS 5.2 и новее** XKeen нужен токен доступа к роутеру — команда получает его сама.
+Если это не удалось, она остановится до начала установки и попросит создать токен вручную: в веб-интерфейсе
+в разделе «Пользователи и доступ». Скопируйте его и добавьте в команду:
+
+```sh
+curl -L https://raw.githubusercontent.com/postq-vpn/XKeenPQ-UI/main/setup.sh | sh -s -- auto token=ВАШ_ТОКЕН
+```
 
 ### 6. Подключите подписку
 
