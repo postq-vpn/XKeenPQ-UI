@@ -378,7 +378,7 @@ mod tests {
             .iter()
             .map(|r| r["outboundTag"].as_str().unwrap())
             .collect();
-        assert_eq!(tags, ["block", "direct", "direct", "moi_vpn", "moi_vpn", "direct"]);
+        assert_eq!(tags, ["block", "moi_vpn", "direct", "direct", "moi_vpn", "moi_vpn", "direct"]);
         assert_eq!(default_routing_assets(), ["geosite_v2fly.dat", "zkeen.dat", "zkeenip.dat"]);
     }
 
