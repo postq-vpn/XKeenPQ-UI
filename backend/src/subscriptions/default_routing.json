@@ -41,7 +41,14 @@
           "domain:rockstarnorth.com",
           "domain:rockstargames.helpshift.com",
           "domain:yandex.cloud",
-          "domain:rw.kxp.one"
+          "domain:rw.kxp.one",
+          "domain:apple.com",
+          "domain:icloud.com",
+          "domain:mzstatic.com",
+          "domain:icloud-content.com",
+          "domain:cdn-apple.com",
+          "domain:aaplimg.com",
+          "domain:apple-cloudkit.com"
         ],
         "outboundTag": "direct"
       },
