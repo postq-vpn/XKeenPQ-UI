@@ -236,7 +236,8 @@ fn fatal_signal_message(sig: i32) -> &'static [u8] {
         x if x == nix::libc::SIGFPE => b"[FATAL] received SIGFPE\n",
         x if x == nix::libc::SIGILL => b"[FATAL] received SIGILL\n",
         x if x == nix::libc::SIGSEGV => b"[FATAL] received SIGSEGV\n",
-        x if x == nix::libc::SIGTERM => b"[FATAL] received SIGTERM\n",
+        // SIGTERM — штатная остановка (init-скрипт, обновление), а не сбой
+        x if x == nix::libc::SIGTERM => b"[INFO] received SIGTERM, stopping\n",
         _ => b"[FATAL] received fatal signal\n",
     }
 }
