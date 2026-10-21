@@ -244,6 +244,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
             githubProxies: data.updater.github_proxy || [],
             xrayRepo: data.updater.xray_repo ?? DEFAULT_XRAY_REPO,
             timezone: data.log.timezone,
+            xrayLogLevel: data.log.xray_level ?? 'warning',
             authEnabled: !!data.auth?.enabled,
             multiRouter: data.plugins?.multi_router ?? false,
           },

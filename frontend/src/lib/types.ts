@@ -2,6 +2,9 @@ export const DEFAULT_XRAY_REPO = 'https://github.com/XTLS/Xray-core'
 
 export type ThemeMode = 'light' | 'dark' | 'auto'
 
+export const XRAY_LOG_LEVELS = ['none', 'error', 'warning', 'info', 'debug'] as const
+export type XrayLogLevel = (typeof XRAY_LOG_LEVELS)[number]
+
 export interface Config {
   file: string
   content: string
@@ -20,6 +23,8 @@ export interface AppSettings {
   githubProxies: string[]
   xrayRepo: string
   timezone: number
+  /** Уровень логов Xray (loglevel в 01_log.json). */
+  xrayLogLevel: XrayLogLevel
   authEnabled: boolean
   multiRouter: boolean
 }

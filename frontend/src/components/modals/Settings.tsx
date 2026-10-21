@@ -16,7 +16,7 @@ import { IconAlertCircle, IconSettings, IconX, IconArrowBackUp } from '@tabler/i
 import { Fragment, memo, useCallback, useEffect, useState } from 'react'
 import { apiCall } from '../../lib/api'
 import { useAppContext, useModalContext } from '../../lib/store'
-import type { AppSettings, ThemeMode } from '../../lib/types'
+import { XRAY_LOG_LEVELS, type AppSettings, type ThemeMode, type XrayLogLevel } from '../../lib/types'
 
 type BooleanSettingKey = {
   [K in keyof AppSettings]: AppSettings[K] extends boolean ? K : never
@@ -471,6 +471,17 @@ export function SettingsModal({ onOpenLog, onOpenFile }: SettingsModalProps) {
     [dispatch, saveSetting]
   )
 
+  const setXrayLogLevel = useCallback(
+    async (value: string) => {
+      const ok = await saveSetting('log.xray_level', value)
+      if (ok) {
+        dispatch({ type: 'SET_SETTINGS', settings: { xrayLogLevel: value as XrayLogLevel } })
+        showToast(`Уровень логов Xray: ${value}`)
+      }
+    },
+    [dispatch, saveSetting, showToast]
+  )
+
   const setTimezone = useCallback(
     async (value: string) => {
       const offset = parseInt(value, 10)
@@ -578,6 +589,32 @@ export function SettingsModal({ onOpenLog, onOpenFile }: SettingsModalProps) {
                     onOpenFile(file)
                   }}
                 />
+                <Field orientation="horizontal" className="px-2 py-3">
+                  <FieldContent>
+                    <FieldLabel htmlFor="xray-log-level">Уровень логов Xray</FieldLabel>
+                    <FieldDescription className="text-[13px]">
+                      Подробность журнала ошибок. При смене Xray перезапускается
+                    </FieldDescription>
+                  </FieldContent>
+                  <Select
+                    value={settings.xrayLogLevel}
+                    items={Object.fromEntries(XRAY_LOG_LEVELS.map((l) => [l, l]))}
+                    onValueChange={(v) => void setXrayLogLevel(v as string)}
+                  >
+                    <SelectTrigger id="xray-log-level" className="w-30 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {XRAY_LOG_LEVELS.map((l) => (
+                          <SelectItem key={l} value={l} className="text-sm">
+                            {l}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
                 <RuExcludeSetting />
                 <Separator className="my-3" />
                 <p className="text-muted-foreground pt-4 pb-1 text-xs font-medium tracking-wider uppercase">Режим GUI</p>

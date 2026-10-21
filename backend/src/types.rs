@@ -155,11 +155,16 @@ impl Default for UpdaterSettings {
 #[serde(default)]
 pub struct LogSettings {
     pub timezone: i32,
+    /// Уровень логов Xray (`loglevel` в `01_log.json`).
+    pub xray_level: String,
 }
 
 impl Default for LogSettings {
     fn default() -> Self {
-        Self { timezone: 3 }
+        Self {
+            timezone: 3,
+            xray_level: "warning".into(),
+        }
     }
 }
 

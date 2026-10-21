@@ -36,6 +36,9 @@ pub async fn patch_settings(State(state): State<AppState>, Json(patch): Json<ser
     if settings.log.timezone < -12 || settings.log.timezone > 14 {
         return Json(serde_json::json!({"success": false, "error": "Неверный часовой пояс"}));
     }
+    if !crate::xray_log::LOG_LEVELS.contains(&settings.log.xray_level.as_str()) {
+        return Json(serde_json::json!({"success": false, "error": "Неверный уровень логов"}));
+    }
     if let Err(e) = settings.validate_plugins() {
         return Json(serde_json::json!({"success": false, "error": e}));
     }
@@ -48,7 +51,13 @@ pub async fn patch_settings(State(state): State<AppState>, Json(patch): Json<ser
     }
     settings.normalize_proxies();
 
-    *state.settings.write().unwrap() = settings;
+    let xray_level = settings.log.xray_level.clone();
+    let level_changed = {
+        let mut current = state.settings.write().unwrap();
+        let changed = current.log.xray_level != xray_level;
+        *current = settings;
+        changed
+    };
 
     if let Err(e) = tokio::fs::create_dir_all(XKEEN_CONF_DIR).await {
         return Json(serde_json::json!({"success": false, "error": e.to_string()}));
@@ -56,13 +65,32 @@ pub async fn patch_settings(State(state): State<AppState>, Json(patch): Json<ser
 
     let serialized = serde_json::to_string_pretty(&file_json).unwrap();
     let tmp = format!("{}.tmp", APP_CONFIG);
-    match crate::private_file::write(&tmp, &serialized).await {
-        Ok(_) => match tokio::fs::rename(&tmp, APP_CONFIG).await {
-            Ok(_) => Json(serde_json::json!({"success": true})),
-            Err(e) => Json(serde_json::json!({"success": false, "error": e.to_string()})),
-        },
-        Err(e) => Json(serde_json::json!({"success": false, "error": e.to_string()})),
+    let saved = match crate::private_file::write(&tmp, &serialized).await {
+        Ok(_) => tokio::fs::rename(&tmp, APP_CONFIG).await.map_err(|e| e.to_string()),
+        Err(e) => Err(e.to_string()),
+    };
+    if let Err(e) = saved {
+        return Json(serde_json::json!({"success": false, "error": e}));
     }
+
+    if level_changed && apply_xray_log_level(xray_level).await.is_err() {
+        return Json(serde_json::json!({"success": false, "error": "Уровень сохранён, но Xray не перезапустился"}));
+    }
+    Json(serde_json::json!({"success": true}))
+}
+
+/// Записывает уровень в `01_log.json` и перезапускает Xray, если он запущен.
+async fn apply_xray_log_level(level: String) -> Result<(), ()> {
+    let changed = tokio::task::spawn_blocking(move || crate::xray_log::ensure_log_config(&level))
+        .await
+        .unwrap_or(false);
+    if !changed || crate::controller::get_pid("xray").is_empty() {
+        return Ok(());
+    }
+    crate::logger::log("INFO", "Перезапуск Xray после изменения уровня логов".into());
+    crate::controller::soft_restart("xray").await.map_err(|e| {
+        crate::logger::log("ERROR", format!("Не удалось перезапустить Xray: {e}"));
+    })
 }
 
 fn json_merge(a: &mut serde_json::Value, b: serde_json::Value) {

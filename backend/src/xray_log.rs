@@ -1,7 +1,8 @@
 //! Логи Xray: настройки закреплены панелью, размер файлов ограничен, файл можно скачать.
 //!
 //! Пункт «log» убран из меню «Технические файлы», поэтому `01_log.json` всегда приводится
-//! к одному виду: access и error пишутся в файлы, уровень warning, DNS-лог включён.
+//! к одному виду: access и error пишутся в файлы, DNS-лог включён, уровень берётся из
+//! настроек панели (`log.xray_level`, по умолчанию warning).
 //! Файлы не ротируются ни Xray, ни XKeen — панель раз в минуту обрезает их до хвоста.
 
 use crate::logger::log;
@@ -25,22 +26,25 @@ const MAX_LOG_SIZE: u64 = 10 * 1024 * 1024;
 const KEEP_LOG_SIZE: u64 = 5 * 1024 * 1024;
 const DOWNLOAD_CHUNK: usize = 64 * 1024;
 const TRIM_INTERVAL: Duration = Duration::from_secs(60);
+pub const LOG_LEVELS: [&str; 5] = ["none", "error", "warning", "info", "debug"];
 
-fn wanted_log_config() -> Value {
+fn wanted_log_config(level: &str) -> Value {
+    let level = if LOG_LEVELS.contains(&level) { level } else { "warning" };
     json!({
         "log": {
             "access": DEFAULT_ACCESS_LOG,
             "error": DEFAULT_ERROR_LOG,
-            "loglevel": "warning",
+            "loglevel": level,
             "dnsLog": true
         }
     })
 }
 
-/// Приводит `01_log.json` к закреплённым настройкам. Возвращает true, если файл переписан.
-pub fn ensure_log_config() -> bool {
+/// Приводит `01_log.json` к закреплённым настройкам с уровнем `level`.
+/// Возвращает true, если файл переписан.
+pub fn ensure_log_config(level: &str) -> bool {
     let path = Path::new(XRAY_CONF_DIR).join(LOG_CONFIG_FILE);
-    let wanted = wanted_log_config();
+    let wanted = wanted_log_config(level);
     let current = std::fs::read_to_string(&path)
         .ok()
         .and_then(|text| serde_json::from_str::<Value>(&strip_jsonc(&text)).ok());
@@ -55,7 +59,11 @@ pub fn ensure_log_config() -> bool {
     }
     log(
         "INFO",
-        format!("{}: access и error в файлы, уровень warning, DNS-лог включён", path.display()),
+        format!(
+            "{}: access и error в файлы, уровень {}, DNS-лог включён",
+            path.display(),
+            wanted["log"]["loglevel"].as_str().unwrap_or_default()
+        ),
     );
     true
 }
@@ -160,8 +168,10 @@ mod tests {
 
     #[test]
     fn wanted_config_shape() {
-        let c = wanted_log_config();
+        let c = wanted_log_config("warning");
         assert_eq!(c["log"]["loglevel"], "warning");
+        assert_eq!(wanted_log_config("debug")["log"]["loglevel"], "debug");
+        assert_eq!(wanted_log_config("verbose")["log"]["loglevel"], "warning");
         assert_eq!(c["log"]["dnsLog"], true);
         assert_eq!(c["log"]["access"], DEFAULT_ACCESS_LOG);
     }

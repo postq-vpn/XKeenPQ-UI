@@ -385,7 +385,8 @@ async fn main() {
     private_file::restrict(Path::new(SUBSCRIPTIONS_FILE));
     private_file::restrict(Path::new(APP_CONFIG));
     backuper::restrict_backups();
-    let log_config_changed = xray_log::ensure_log_config();
+    let settings = load_settings();
+    let log_config_changed = xray_log::ensure_log_config(&settings.log.xray_level);
     refresh_xray_log_paths();
     let error_log = error_log_path();
     let access_log = access_log_path();
@@ -434,7 +435,7 @@ async fn main() {
         .and_then(|json| json.get("xkeen")?.get("rci_token")?.as_str().map(String::from));
 
     let state = AppState {
-        settings: Arc::new(RwLock::new(load_settings())),
+        settings: Arc::new(RwLock::new(settings)),
         init_file: Arc::new(RwLock::new(init_file)),
         http_client: reqwest::Client::builder()
             .user_agent("XKeen-UI")

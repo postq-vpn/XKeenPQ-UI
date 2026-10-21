@@ -16,6 +16,7 @@ const initialSettings: AppSettings = {
   githubProxies: [],
   xrayRepo: DEFAULT_XRAY_REPO,
   timezone: 0,
+  xrayLogLevel: 'warning',
   authEnabled: false,
   multiRouter: false,
 }
