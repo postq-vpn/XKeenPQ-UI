@@ -548,24 +548,3 @@
 :root:not(.dark) .postq-logo-text {
   fill: #212023;
 }
-
-/* Подпись к логотипу «- XKeen UI»: в светлой теме как надпись логотипа, в тёмной — продолжение градиента. */
-/* Varela Round — для подписи к логотипу (латиница, нужна только «- XKeen UI»). */
-@font-face {
-  font-family: 'Varela Round';
-  font-style: normal;
-  font-display: swap;
-  font-weight: 400;
-  src: url('../node_modules/@fontsource/varela-round/files/varela-round-latin-400-normal.woff2') format('woff2');
-}
-
-.postq-logo-suffix {
-  font-family: 'Varela Round', 'Inter Variable', sans-serif;
-  color: #212023;
-}
-.dark .postq-logo-suffix {
-  background: linear-gradient(90deg, #d94fc2, #cf00a3);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
