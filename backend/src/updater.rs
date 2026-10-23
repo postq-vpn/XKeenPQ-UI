@@ -591,6 +591,11 @@ pub async fn post_update(State(state): State<AppState>, Json(req): Json<UpdateRe
         }
         if let Err(e) = fs::copy(&source, &target).await {
             _ = fs::remove_file(&source).await;
+            if run {
+                // Ядро было остановлено перед копированием — запускаем обратно, чтобы не остаться без VPN.
+                log("INFO", "Запуск XKeen...".into());
+                _ = crate::controller::run_init_command(&state, &["start", "on"]).await;
+            }
             return response(false, Some(format!("Ошибка установки: {}", e)));
         }
         _ = fs::remove_file(&source).await;
