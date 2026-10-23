@@ -14,7 +14,7 @@ import { RouteTesterModal } from './components/modals/RouteTester'
 import { SettingsModal } from './components/modals/Settings'
 import { TemplateModal } from './components/modals/Templates'
 import { UpdateModal } from './components/modals/Update'
-import { XrayServerDialog, XraySubscriptionsModal } from './components/modals/XraySubscriptions'
+import { XraySubscriptionsModal } from './components/modals/XraySubscriptions'
 import { RoutingWarning } from './components/status/RoutingWarning'
 import { StatusBar } from './components/status/StatusBar'
 import { Toast } from './components/ui/toast'
@@ -78,15 +78,6 @@ const ModalManager = memo(function ModalManager({
   const mountSettings = useLazyMount(modals.showSettingsModal)
   const mountGeoScan = useLazyMount(modals.showGeoScanModal)
   const mountRouteTest = useLazyMount(modals.showRouteTestModal)
-  // Новая подписка Xray: после закрытия «Добавить подключение» отдельным окном выбираем сервер.
-  const [serverPickSub, setServerPickSub] = useState<XraySubscription | null>(null)
-  const handleSubscriptionSaved = useCallback(
-    (sub: XraySubscription) => {
-      onSubscriptionSaved()
-      setTimeout(() => setServerPickSub(sub), 200)
-    },
-    [onSubscriptionSaved]
-  )
 
   return (
     <>
@@ -104,18 +95,10 @@ const ModalManager = memo(function ModalManager({
         <ImportModal
           onGenerate={onGenerate}
           onAddToConfig={onAddToConfig}
-          onSubscriptionSaved={handleSubscriptionSaved}
+          onSubscriptionSaved={onSubscriptionSaved}
           welcome={welcome}
         />
       )}
-      <XrayServerDialog
-        sub={serverPickSub}
-        onClose={() => setServerPickSub(null)}
-        onDone={() => {
-          setServerPickSub(null)
-          onSubscriptionSaved()
-        }}
-      />
       {mountTemplate && <TemplateModal onImport={onImportTemplate} />}
       {mountSettings && <SettingsModal onOpenLog={onOpenLog} onOpenFile={onOpenFile} />}
       {mountGeoScan && <GeoScanModal />}

@@ -609,7 +609,7 @@ function AutoServerRow(props: {
       onClick={() => !disabled && onSelect()}
     >
       <RadioGroupItem value={AUTO_SERVER} disabled={disabled} aria-label="Авто" />
-      <span className="shrink-0 font-medium">Авто</span>
+      <span className="shrink-0 font-medium">⚡ Авто</span>
       <span className="text-muted-foreground truncate text-[11px]">{current ? `сейчас: ${current}` : 'самый быстрый рабочий сервер'}</span>
       <span className="ml-auto w-16 shrink-0 text-right">
         <PingBadge result={ping} />
@@ -642,146 +642,6 @@ export const serverName = (sub: XraySubscription, tag: string) =>
 export function activeServerTag(sub: XraySubscription) {
   const enabled = withoutAutoServers(sub.server_list)
   return enabled.find((s) => s.tag === sub.primary)?.tag ?? enabled[0]?.tag ?? ''
-}
-
-interface PickerProps {
-  sub: XraySubscription
-  onDone: (sub: XraySubscription) => void
-  onSkip?: () => void
-}
-
-/** Выбор сервера подписки с пингом. Если сервер ещё не выбран, предлагает «Авто». */
-export function XrayServerPicker({ sub, onDone, onSkip }: PickerProps) {
-  const { showToast } = useAppActions()
-  const { results, ping } = usePing()
-  const [selected, setSelected] = useState(sub.primary || AUTO_SERVER)
-  const [saving, setSaving] = useState(false)
-  // Российские серверы — в конце, под плашкой «Не рекомендуется».
-  const { recommended, notRecommended } = useMemo(() => splitRecommended(withoutAutoServers(sub.server_list)), [sub])
-  const servers = useMemo(() => [...recommended, ...notRecommended], [recommended, notRecommended])
-  const pinging = Object.values(results).some((r) => r.loading)
-
-  async function runPing() {
-    await ping(servers)
-  }
-
-  useEffect(() => {
-    void runPing()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  async function save() {
-    setSaving(true)
-    try {
-      const res = await apiCall<ApiResult & { subscription?: XraySubscription }>('POST', 'subscriptions/primary', {
-        tag: sub.tag,
-        primary: selected === AUTO_SERVER ? '' : selected,
-      })
-      if (!res.success || !res.subscription) throw new Error(res.error)
-      showToast(selected === AUTO_SERVER ? 'Сервер выбирается автоматически' : `Выбран сервер ${serverName(sub, selected)}`)
-      if (res.restart_error) showToast(`Не удалось перезапустить Xray: ${res.restart_error}`, 'error')
-      onDone(res.subscription)
-    } catch (e: any) {
-      showToast(e.message || 'Не удалось сохранить', 'error')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <>
-      <div className="border-border bg-muted/30 flex shrink-0 items-center justify-between gap-2 border-b px-3 py-1.5 text-xs">
-        <span>Серверов: {servers.length}</span>
-        <Button variant="ghost" size="xs" disabled={pinging} onClick={() => void runPing()}>
-          {pinging ? <Spinner className="size-3" /> : <IconRefresh />} Пинг
-        </Button>
-      </div>
-
-      <div className="bg-input-background min-h-0 flex-1 overflow-auto">
-        {servers.length === 0 && <div className="text-muted-foreground p-4 text-xs">Список серверов ещё не получен</div>}
-        <RadioGroup value={selected} onValueChange={setSelected} className="gap-0">
-          {servers.length > 0 && (
-            <AutoServerRow selected={selected === AUTO_SERVER} className="px-3 py-2" onSelect={() => setSelected(AUTO_SERVER)} />
-          )}
-          {servers.map((s, i) => (
-            <Fragment key={s.tag}>
-              {i === recommended.length && <NotRecommendedLabel />}
-              <div
-                className={cn(
-                  'border-border/50 hover:bg-muted/30 flex cursor-pointer items-center gap-3 border-b px-3 py-2 text-[13px] last:border-b-0',
-                  s.tag === selected && 'bg-muted/30'
-                )}
-                onClick={() => setSelected(s.tag)}
-              >
-                <RadioGroupItem value={s.tag} aria-label={serverName(sub, s.tag)} />
-                <span className="truncate font-medium">{serverName(sub, s.tag)}</span>
-                <span className="ml-auto flex shrink-0 items-center gap-3">
-                  <span className="w-16 text-right">
-                    <PingBadge result={results[s.tag]} />
-                  </span>
-                </span>
-              </div>
-            </Fragment>
-          ))}
-        </RadioGroup>
-      </div>
-
-      <p className="text-muted-foreground border-border shrink-0 border-t px-3 py-2 text-xs">
-        Сменить сервер можно позже на вкладке «Серверы».
-      </p>
-
-      <div className="border-border bg-muted/10 flex w-full shrink-0 gap-2 border-t p-2">
-        {onSkip && (
-          <Button variant="ghost" size="sm" className="text-xs" disabled={saving} onClick={onSkip}>
-            Пропустить
-          </Button>
-        )}
-        <Button variant="outline" size="sm" className="min-w-0 flex-1 gap-1.5 text-xs" disabled={saving || !selected} onClick={save}>
-          {saving ? <Spinner className="size-4" /> : <IconDeviceFloppy />}
-          Выбрать
-        </Button>
-      </div>
-    </>
-  )
-}
-
-interface ServerDialogProps {
-  /** Подписка для выбора; null — окно закрыто. */
-  sub: XraySubscription | null
-  onClose: () => void
-  onDone: (sub: XraySubscription) => void
-}
-
-/** Отдельное окно выбора сервера — открывается сразу после добавления подписки. */
-export function XrayServerDialog({ sub, onClose, onDone }: ServerDialogProps) {
-  // Держим последнюю подписку, чтобы содержимое не пропадало во время анимации закрытия.
-  const [shown, setShown] = useState(sub)
-  if (sub && sub !== shown) setShown(sub)
-
-  return (
-    <TooltipProvider delayDuration={500}>
-      <Dialog open={sub !== null} onOpenChange={(v) => !v && onClose()}>
-        <DialogContent className="flex max-h-[90dvh] w-auto! max-w-[min(90vw,720px)]! min-w-[min(90vw,480px)]! flex-col overflow-hidden">
-          <DialogHeader className="shrink-0 pb-1">
-            <DialogTitle className="flex items-center gap-2 pb-2">
-              <IconDatabase size={22} className="text-chart-2" />
-              Выберите сервер
-            </DialogTitle>
-            <DialogDescription>
-              {shown
-                ? `Подписка ${shown.tag} добавлена, серверов: ${shown.servers ?? 0}. Выберите сервер, через который пойдёт трафик`
-                : ''}
-            </DialogDescription>
-          </DialogHeader>
-          {shown && (
-            <div className="border-border bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
-              <XrayServerPicker key={shown.tag} sub={shown} onDone={onDone} onSkip={onClose} />
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-    </TooltipProvider>
-  )
 }
 
 interface ModalProps {
@@ -861,11 +721,12 @@ export function XraySubscriptionsModal({ onChanged, onAddNew, reloadKey, headerE
     }
   }, [hasAuto, subs])
 
-  // Пинг всех серверов после загрузки списка.
+  // Пинг всех серверов после загрузки списка и когда серверы поменялись (например, добавили подписку).
+  const serverTags = subs.flatMap((s) => withoutAutoServers(s.server_list).map((x) => x.tag)).join('\n')
   useEffect(() => {
-    if (!loading) void ping(subs.flatMap((s) => withoutAutoServers(s.server_list)))
+    if (!loading && serverTags) void ping(subs.flatMap((s) => withoutAutoServers(s.server_list)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, ping])
+  }, [loading, serverTags, ping])
 
   const serverGroups = useMemo(
     () =>
