@@ -537,7 +537,10 @@ pub async fn post_update(State(state): State<AppState>, Json(req): Json<UpdateRe
         Ok(())
     }
 
-    let bin = tmp_dir.join(format!("{}_{}", core_name, ver));
+    let target = format!("/opt/sbin/{}", req.core);
+    // Распаковываем рядом с ядром: rename в пределах одной папки атомарен и не падает с EXDEV,
+    // поэтому XKeen не нужно останавливать, а при сбое старое ядро остаётся целым.
+    let bin = Path::new("/opt/sbin").join(format!(".{}_{}.tmp", core_name, ver));
     let unpack = tokio::task::spawn_blocking({
         let bin = bin.clone();
         move || -> std::io::Result<()> {
@@ -558,7 +561,6 @@ pub async fn post_update(State(state): State<AppState>, Json(req): Json<UpdateRe
         return response(false, Some(format!("Ошибка распаковки: {}", e)));
     }
 
-    let target = format!("/opt/sbin/{}", req.core);
     if req.backup_core && Path::new(&target).exists() {
         let bk = format!(
             "/opt/sbin/core-backup/{}-{}",
@@ -571,38 +573,16 @@ pub async fn post_update(State(state): State<AppState>, Json(req): Json<UpdateRe
         _ = fs::copy(&target, &bk).await;
     }
 
-    let (run, source) = (
-        !crate::controller::get_pid(&req.core).is_empty(),
-        tmp_dir.join(format!("{}_{}", req.core, ver)),
-    );
-    if fs::rename(&source, &target).await.is_ok() {
-        _ = fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).await;
-        if run {
-            log("INFO", format!("Перезапуск {}...", core_cap));
-            if let Err(e) = crate::controller::soft_restart(&req.core).await {
-                return response(false, Some(e.to_string()));
-            }
-        }
-    } else {
-        log("WARN", "Атомарная замена не удалась, фолбек на копирование...".into());
-        if run {
-            log("INFO", "Остановка XKeen...".into());
-            _ = crate::controller::run_init_command(&state, &["stop"]).await;
-        }
-        if let Err(e) = fs::copy(&source, &target).await {
-            _ = fs::remove_file(&source).await;
-            if run {
-                // Ядро было остановлено перед копированием — запускаем обратно, чтобы не остаться без VPN.
-                log("INFO", "Запуск XKeen...".into());
-                _ = crate::controller::run_init_command(&state, &["start", "on"]).await;
-            }
-            return response(false, Some(format!("Ошибка установки: {}", e)));
-        }
-        _ = fs::remove_file(&source).await;
-        _ = fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).await;
-        if run {
-            log("INFO", "Запуск XKeen...".into());
-            _ = crate::controller::run_init_command(&state, &["start", "on"]).await;
+    let run = !crate::controller::get_pid(&req.core).is_empty();
+    if let Err(e) = fs::rename(&bin, &target).await {
+        _ = fs::remove_file(&bin).await;
+        return response(false, Some(format!("Ошибка установки: {}", e)));
+    }
+    _ = fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).await;
+    if run {
+        log("INFO", format!("Перезапуск {}...", core_cap));
+        if let Err(e) = crate::controller::soft_restart(&req.core).await {
+            return response(false, Some(e.to_string()));
         }
     }
 
