@@ -156,7 +156,17 @@ pub async fn fetch_latest_version(client: &reqwest::Client, repo: &str, proxies:
     None
 }
 
+/// Сколько ждать записи нового бинаря панели на накопитель. Дольше — накопитель завис или сбоит:
+/// отвечаем ошибкой, а не держим запрос, пока браузер не оборвёт его сам («Load failed»).
+const SELF_INSTALL_TIMEOUT: Duration = Duration::from_secs(90);
+/// Сколько ждать сброса кэша на диск после установки; файл к этому моменту уже на месте.
+const SYNC_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Ответ на запрос обновления; ошибка попадает и в журнал панели, а не только в браузер.
 fn response(success: bool, error: Option<String>) -> (HeaderMap, Json<Value>) {
+    if let Some(e) = &error {
+        log("ERROR", format!("Обновление не выполнено: {e}"));
+    }
     let mut h = HeaderMap::new();
     h.insert(header::CONNECTION, "close".parse().unwrap());
     (h, Json(json!({ "success": success, "error": error })))
@@ -271,8 +281,7 @@ async fn download(
             Err(e) => log("WARN", format!("Ошибка загрузки: {}", e)),
         }
     }
-    log("ERROR", "Не удалось выполнить обновление".into());
-    Err("Не удалось выполнить обновление".into())
+    Err("Не удалось загрузить файл обновления".into())
 }
 async fn save(dl: DownloadResult, out_path: PathBuf) -> std::io::Result<()> {
     tokio::task::spawn_blocking(move || {
@@ -361,43 +370,67 @@ pub async fn post_update(State(state): State<AppState>, Json(req): Json<UpdateRe
         log("INFO", "Установка обновления...".into());
 
         let source = tmp_dir.join(format!("xkeen-ui_{}", ver));
-        if let Err(e) = save(bin_d, source.clone()).await {
-            return response(false, Some(format!("Ошибка сохранения: {}", e)));
-        }
+        let install = async {
+            save(bin_d, source.clone())
+                .await
+                .map_err(|e| format!("Ошибка сохранения: {}", e))?;
 
-        let integrity_check = tokio::task::spawn_blocking({
-            let source = source.clone();
-            move || -> Result<(), String> {
-                let meta = std::fs::metadata(&source).map_err(|e| format!("Ошибка проверки файла: {}", e))?;
-                if meta.len() < 1024 * 1024 {
-                    return Err("Файл меньше 1МБ — повреждённый артефакт".into());
+            let integrity_check = tokio::task::spawn_blocking({
+                let source = source.clone();
+                move || -> Result<(), String> {
+                    let meta = std::fs::metadata(&source).map_err(|e| format!("Ошибка проверки файла: {}", e))?;
+                    if meta.len() < 1024 * 1024 {
+                        return Err("Файл меньше 1МБ — повреждённый артефакт".into());
+                    }
+                    let mut f = std::fs::File::open(&source).map_err(|e| format!("Ошибка открытия файла: {}", e))?;
+                    let mut magic = [0u8; 4];
+                    f.read_exact(&mut magic)
+                        .map_err(|e| format!("Ошибка чтения файла: {}", e))?;
+                    if magic != [0x7F, b'E', b'L', b'F'] {
+                        return Err("Файл не является ELF-бинарём — отменено".into());
+                    }
+                    Ok(())
                 }
-                let mut f = std::fs::File::open(&source).map_err(|e| format!("Ошибка открытия файла: {}", e))?;
-                let mut magic = [0u8; 4];
-                f.read_exact(&mut magic)
-                    .map_err(|e| format!("Ошибка чтения файла: {}", e))?;
-                if magic != [0x7F, b'E', b'L', b'F'] {
-                    return Err("Файл не является ELF-бинарём — отменено".into());
-                }
-                Ok(())
+            })
+            .await
+            .map_err(|e| format!("Ошибка проверки: {}", e))
+            .and_then(|r| r);
+
+            if let Err(e) = integrity_check {
+                _ = std::fs::remove_file(&source);
+                return Err(e);
             }
-        })
-        .await
-        .map_err(|e| format!("Ошибка проверки: {}", e))
-        .and_then(|r| r);
 
-        if let Err(e) = integrity_check {
-            _ = std::fs::remove_file(&source);
-            return response(false, Some(e));
+            let target = "/opt/sbin/xkeen-ui";
+            fs::rename(&source, target)
+                .await
+                .map_err(|e| format!("Ошибка установки: {}", e))?;
+
+            _ = fs::set_permissions(target, std::fs::Permissions::from_mode(0o755)).await;
+            Ok::<(), String>(())
+        };
+        match tokio::time::timeout(SELF_INSTALL_TIMEOUT, install).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return response(false, Some(e)),
+            Err(_) => {
+                return response(
+                    false,
+                    Some(format!(
+                        "Запись на USB-накопитель не завершилась за {} с — проверьте накопитель (место, ошибки)",
+                        SELF_INSTALL_TIMEOUT.as_secs()
+                    )),
+                );
+            }
         }
-
-        let target = "/opt/sbin/xkeen-ui";
-        if let Err(e) = fs::rename(&source, target).await {
-            return response(false, Some(format!("Ошибка установки: {}", e)));
+        if tokio::time::timeout(SYNC_TIMEOUT, tokio::task::spawn_blocking(rustix::fs::sync))
+            .await
+            .is_err()
+        {
+            log(
+                "WARN",
+                "Сброс данных на USB-накопитель затянулся, накопитель работает медленно".into(),
+            );
         }
-
-        _ = fs::set_permissions(target, std::fs::Permissions::from_mode(0o755)).await;
-        _ = tokio::task::spawn_blocking(rustix::fs::sync).await;
 
         log("INFO", format!("Обновление XKeen UI до {} завершено", ver));
 
@@ -540,7 +573,6 @@ pub async fn post_update(State(state): State<AppState>, Json(req): Json<UpdateRe
         if run {
             log("INFO", format!("Перезапуск {}...", core_cap));
             if let Err(e) = crate::controller::soft_restart(&req.core).await {
-                log("ERROR", e.to_string());
                 return response(false, Some(e.to_string()));
             }
         }

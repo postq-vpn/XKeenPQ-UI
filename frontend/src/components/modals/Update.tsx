@@ -10,7 +10,7 @@ import { IconDownload, IconPlaylistX, IconRefresh } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { apiCall, capitalize } from '../../lib/api'
+import { apiCall, capitalize, isNetworkError, NETWORK_ERROR } from '../../lib/api'
 import { useAppContext, useModalContext, useSettings } from '../../lib/store'
 import type { Release } from '../../lib/types'
 import { cn, repoSlug } from '../../lib/utils'
@@ -185,8 +185,8 @@ export function UpdateModal({ onInstalled }: { onInstalled: () => void }) {
       } else {
         showToast(data.error || 'Ошибка установки', 'error')
       }
-    } catch {
-      showToast('Ошибка установки', 'error')
+    } catch (e) {
+      showToast(isNetworkError(e) ? `Ошибка установки: ${NETWORK_ERROR.toLowerCase()}` : 'Ошибка установки', 'error')
     } finally {
       if (updateModalCore !== 'self') {
         setInstalling(false)

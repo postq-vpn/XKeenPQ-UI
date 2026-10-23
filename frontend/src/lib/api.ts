@@ -4,6 +4,15 @@ function apiPrefix(baseUrl?: string | null): string {
   return baseUrl ? `${baseUrl}/api` : '/api'
 }
 
+/** Текст для обрыва связи с панелью: браузеры пишут о нём по-своему («Load failed» в Safari,
+ * «Failed to fetch» в Chrome), пользователю это ничего не говорит. */
+export const NETWORK_ERROR = 'Нет связи с роутером — проверьте подключение и обновите страницу'
+
+/** Обрыв связи (не таймаут по AbortController — его обрабатывают вызывающие). */
+export function isNetworkError(e: unknown): boolean {
+  return e instanceof TypeError
+}
+
 export async function apiCall<T = unknown>(
   method: string,
   endpoint: string,
@@ -25,6 +34,9 @@ export async function apiCall<T = unknown>(
       signal: controller?.signal,
     })
     return (await res.json()) as T
+  } catch (e) {
+    if (isNetworkError(e)) throw new Error(NETWORK_ERROR)
+    throw e
   } finally {
     if (timer) clearTimeout(timer)
   }
