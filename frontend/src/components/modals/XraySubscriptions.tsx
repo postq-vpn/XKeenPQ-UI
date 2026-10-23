@@ -587,10 +587,17 @@ const CURRENT_POLL_MS = 15000
 
 /**
  * Пункт «Авто»: Xray сам ведёт трафик через самый быстрый рабочий сервер (backend balancer.rs).
- * `current` — имя сервера, выбранного сейчас (если Xray его сообщил).
+ * `current` — имя сервера, выбранного сейчас (если Xray его сообщил), `ping` — его пинг.
  */
-function AutoServerRow(props: { selected: boolean; disabled?: boolean; className: string; current?: string; onSelect: () => void }) {
-  const { selected, disabled, className, current, onSelect } = props
+function AutoServerRow(props: {
+  selected: boolean
+  disabled?: boolean
+  className: string
+  current?: string
+  ping?: PingResult
+  onSelect: () => void
+}) {
+  const { selected, disabled, className, current, ping, onSelect } = props
   return (
     <div
       className={cn(
@@ -603,8 +610,9 @@ function AutoServerRow(props: { selected: boolean; disabled?: boolean; className
     >
       <RadioGroupItem value={AUTO_SERVER} disabled={disabled} aria-label="Авто" />
       <span className="shrink-0 font-medium">Авто</span>
-      <span className="text-muted-foreground truncate text-[11px]">
-        {current ? `сейчас: ${current}` : 'самый быстрый рабочий сервер'}
+      <span className="text-muted-foreground truncate text-[11px]">{current ? `сейчас: ${current}` : 'самый быстрый рабочий сервер'}</span>
+      <span className="ml-auto w-16 shrink-0 text-right">
+        <PingBadge result={ping} />
       </span>
     </div>
   )
@@ -1012,6 +1020,7 @@ export function XraySubscriptionsModal({ onChanged, onAddNew, reloadKey, headerE
                   disabled={busy}
                   className="px-4 py-1.5"
                   current={!sub.primary && current[sub.tag] ? serverName(sub, current[sub.tag]) : undefined}
+                  ping={!sub.primary && current[sub.tag] ? pings[current[sub.tag]] : undefined}
                   onSelect={() => void selectServer(sub, '')}
                 />
               )}
