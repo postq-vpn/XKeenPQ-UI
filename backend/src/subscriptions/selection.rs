@@ -5,7 +5,7 @@ use super::*;
 #[derive(Deserialize)]
 pub struct PrimaryReq {
     tag: String,
-    /// Пусто — автоматически первый включённый сервер.
+    /// Пусто — «Авто»: самый быстрый рабочий сервер через балансировщик.
     #[serde(default)]
     primary: String,
 }
@@ -37,7 +37,10 @@ pub async fn post_primary(Json(req): Json<PrimaryReq>) -> impl IntoResponse {
     log(
         "INFO",
         if updated.primary.is_empty() {
-            format!("Подписка «{}»: сервер выбирается автоматически", updated.tag)
+            format!(
+                "Подписка «{}»: сервер выбирается автоматически (балансировщик)",
+                updated.tag
+            )
         } else {
             format!("Подписка «{}»: выбран сервер «{}»", updated.tag, updated.primary)
         },

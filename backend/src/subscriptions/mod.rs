@@ -3,7 +3,9 @@
 //! Подписка периодически скачивается (с User-Agent и HWID-заголовками), ссылки превращаются
 //! в outbounds и пишутся в `04_outbounds_sub.<tag>.json`. Теги серверов: `<tag>--<имя>`;
 //! под чистым тегом `<tag>` работает выбранный пользователем сервер — на него ссылаются правила.
+//! Если сервер не выбран, правила идут через балансировщик (см. `balancer`).
 
+mod balancer;
 mod device;
 mod geo_files;
 mod parser;
@@ -12,6 +14,7 @@ pub(crate) mod routing;
 mod selection;
 mod title;
 
+pub use balancer::get_current;
 pub use device::get_device;
 pub use ping::post_ping;
 pub use selection::post_primary;
@@ -75,7 +78,8 @@ pub struct Subscription {
     /// Устарело: служебные серверы, отключённые автоматически прошлыми версиями.
     pub auto_disabled: Vec<String>,
     /// Выбранный сервер (тег). В файл добавляется outbound с тегом подписки — его копия;
-    /// на него ссылаются правила маршрутизации. Пусто — первый включённый сервер.
+    /// на него ссылаются правила маршрутизации. Пусто — «Авто»: балансировщик Xray выбирает
+    /// самый быстрый рабочий сервер, копия первого зарубежного остаётся запасным outbound.
     pub primary: String,
     /// Тег строится из названия подписки и следует за ним (тег не правили вручную).
     pub auto_tag: bool,
@@ -328,12 +332,13 @@ fn is_disabled(sub: &Subscription, outbound: &Value) -> bool {
 }
 
 /// Сервер, который работает под тегом подписки: выбранный пользователем, а если он не выбран,
-/// отключён или пропал из подписки — первый включённый. Так тег подписки, на который
-/// ссылаются правила routing, существует всегда.
+/// отключён или пропал из подписки — первый зарубежный (или первый включённый). Так тег
+/// подписки, на который ссылаются правила routing, существует всегда.
 fn active_server<'a>(sub: &Subscription, enabled: &'a [Value]) -> Option<&'a Value> {
     enabled
         .iter()
         .find(|o| !sub.primary.is_empty() && o["tag"] == sub.primary)
+        .or_else(|| enabled.iter().find(|o| balancer::is_recommended(sub, o)))
         .or_else(|| enabled.first())
 }
 
@@ -766,7 +771,8 @@ async fn restart_xray_if_running() -> Option<String> {
 }
 
 /// Завершение любого изменения: при необходимости назначает подписку «Для прокси»,
-/// направляет на неё проксируемые правила routing и перезапускает Xray, если что-то изменилось.
+/// направляет на неё проксируемые правила routing, включает или убирает балансировщики
+/// подписок и перезапускает Xray, если что-то изменилось.
 async fn finish_change(store: &mut Store, mut changed: bool) -> Option<String> {
     if !store.subscriptions.iter().any(|s| s.proxy)
         && let Some(first) = store.subscriptions.first_mut() {
@@ -779,12 +785,16 @@ async fn finish_change(store: &mut Store, mut changed: bool) -> Option<String> {
                 log("ERROR", format!("Ошибка записи {}: {}", SUBSCRIPTIONS_FILE, e));
             }
         }
+    // Сначала балансировщики удалённых подписок возвращаются на outbound, чтобы routing::sync
+    // перевёл их правила на подписку «Для прокси»; после — балансировщик ставится и на них.
+    changed |= sync_balancers(store).await;
     if let Some(target) = store.subscriptions.iter().find(|s| s.proxy) {
         match routing::sync(&target.tag).await {
             Ok(routing_changed) => changed |= routing_changed,
             Err(e) => log("ERROR", format!("Не удалось обновить маршрутизацию: {e}")),
         }
     }
+    changed |= sync_balancers(store).await;
     if changed {
         restart_xray_if_running().await
     } else {
@@ -792,10 +802,19 @@ async fn finish_change(store: &mut Store, mut changed: bool) -> Option<String> {
     }
 }
 
+async fn sync_balancers(store: &Store) -> bool {
+    balancer::sync(&store.subscriptions).await.unwrap_or_else(|e| {
+        log("ERROR", format!("Не удалось обновить автовыбор сервера: {e}"));
+        false
+    })
+}
+
 // ---------- планировщик ----------
 
 pub fn start_scheduler(state: AppState) {
     tokio::spawn(async move {
+        // Первый проход приводит конфиги к текущей версии (например, включает балансировщик).
+        let mut first_tick = true;
         loop {
             tokio::time::sleep(SCHEDULER_TICK).await;
             // Геобазы качаются без блокировки подписок: загрузка может идти минуту и дольше.
@@ -827,7 +846,7 @@ pub fn start_scheduler(state: AppState) {
             let _guard = STORE_LOCK.lock().await;
             let mut store = load_store().await;
             let now = now();
-            let mut touched = geo_updated;
+            let mut touched = geo_updated || std::mem::take(&mut first_tick);
             let mut changed = geo_updated;
             if store.routing_pending && apply_default_routing(&mut store).await {
                 touched = true;

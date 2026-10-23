@@ -526,6 +526,7 @@ async fn main() {
         .route("/api/subscriptions/refresh", post(subscriptions::post_refresh))
         .route("/api/subscriptions/ping", post(subscriptions::post_ping))
         .route("/api/subscriptions/primary", post(subscriptions::post_primary))
+        .route("/api/subscriptions/current", get(subscriptions::get_current))
         .route("/api/subscriptions/device", get(subscriptions::get_device))
         .route("/api/subscriptions/default-routing", get(subscriptions::get_default_routing))
         .route("/api/subscriptions/routing-status", get(subscriptions::get_routing_status))

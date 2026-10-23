@@ -579,6 +579,37 @@ function NotRecommendedLabel() {
   )
 }
 
+/** Значение пункта «Авто» в списках серверов; на backend это пустой `primary`. */
+const AUTO_SERVER = '__auto__'
+
+/** Как часто спрашивать у Xray, какой сервер выбран в режиме «Авто». */
+const CURRENT_POLL_MS = 15000
+
+/**
+ * Пункт «Авто»: Xray сам ведёт трафик через самый быстрый рабочий сервер (backend balancer.rs).
+ * `current` — имя сервера, выбранного сейчас (если Xray его сообщил).
+ */
+function AutoServerRow(props: { selected: boolean; disabled?: boolean; className: string; current?: string; onSelect: () => void }) {
+  const { selected, disabled, className, current, onSelect } = props
+  return (
+    <div
+      className={cn(
+        'border-border/50 hover:bg-muted/30 flex items-center gap-3 border-b text-[13px]',
+        disabled ? 'cursor-default' : 'cursor-pointer',
+        selected && 'bg-muted/30',
+        className
+      )}
+      onClick={() => !disabled && onSelect()}
+    >
+      <RadioGroupItem value={AUTO_SERVER} disabled={disabled} aria-label="Авто" />
+      <span className="shrink-0 font-medium">Авто</span>
+      <span className="text-muted-foreground truncate text-[11px]">
+        {current ? `сейчас: ${current}` : 'самый быстрый рабочий сервер'}
+      </span>
+    </div>
+  )
+}
+
 export function PingBadge({ result }: { result?: PingResult }) {
   if (!result) return null
   if (result.loading) return <Spinner className="size-3.5 shrink-0" />
@@ -611,11 +642,11 @@ interface PickerProps {
   onSkip?: () => void
 }
 
-/** Выбор сервера подписки с TCP-пингом. Если сервер ещё не выбран, предлагает самый быстрый. */
+/** Выбор сервера подписки с пингом. Если сервер ещё не выбран, предлагает «Авто». */
 export function XrayServerPicker({ sub, onDone, onSkip }: PickerProps) {
   const { showToast } = useAppActions()
   const { results, ping } = usePing()
-  const [selected, setSelected] = useState(sub.primary)
+  const [selected, setSelected] = useState(sub.primary || AUTO_SERVER)
   const [saving, setSaving] = useState(false)
   // Российские серверы — в конце, под плашкой «Не рекомендуется».
   const { recommended, notRecommended } = useMemo(() => splitRecommended(withoutAutoServers(sub.server_list)), [sub])
@@ -623,13 +654,7 @@ export function XrayServerPicker({ sub, onDone, onSkip }: PickerProps) {
   const pinging = Object.values(results).some((r) => r.loading)
 
   async function runPing() {
-    const res = await ping(servers)
-    if (sub.primary) return
-    // Самый быстрый среди рекомендуемых; российские — только если других нет.
-    const byPing = (list: XraySubscriptionServer[]) =>
-      list.filter((s) => res[s.tag]?.ms != null).sort((a, b) => (res[a.tag]!.ms as number) - (res[b.tag]!.ms as number))[0]
-    const fastest = byPing(recommended) ?? byPing(notRecommended)
-    setSelected((prev) => prev || fastest?.tag || servers[0]?.tag || '')
+    await ping(servers)
   }
 
   useEffect(() => {
@@ -642,10 +667,10 @@ export function XrayServerPicker({ sub, onDone, onSkip }: PickerProps) {
     try {
       const res = await apiCall<ApiResult & { subscription?: XraySubscription }>('POST', 'subscriptions/primary', {
         tag: sub.tag,
-        primary: selected,
+        primary: selected === AUTO_SERVER ? '' : selected,
       })
       if (!res.success || !res.subscription) throw new Error(res.error)
-      showToast(`Выбран сервер ${serverName(sub, selected)}`)
+      showToast(selected === AUTO_SERVER ? 'Сервер выбирается автоматически' : `Выбран сервер ${serverName(sub, selected)}`)
       if (res.restart_error) showToast(`Не удалось перезапустить Xray: ${res.restart_error}`, 'error')
       onDone(res.subscription)
     } catch (e: any) {
@@ -667,6 +692,9 @@ export function XrayServerPicker({ sub, onDone, onSkip }: PickerProps) {
       <div className="bg-input-background min-h-0 flex-1 overflow-auto">
         {servers.length === 0 && <div className="text-muted-foreground p-4 text-xs">Список серверов ещё не получен</div>}
         <RadioGroup value={selected} onValueChange={setSelected} className="gap-0">
+          {servers.length > 0 && (
+            <AutoServerRow selected={selected === AUTO_SERVER} className="px-3 py-2" onSelect={() => setSelected(AUTO_SERVER)} />
+          )}
           {servers.map((s, i) => (
             <Fragment key={s.tag}>
               {i === recommended.length && <NotRecommendedLabel />}
@@ -774,6 +802,8 @@ export function XraySubscriptionsModal({ onChanged, onAddNew, reloadKey, headerE
   const [editorOpen, setEditorOpen] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
   const { results: pings, ping } = usePing()
+  /** Сервер, выбранный балансировщиком сейчас: тег подписки → тег сервера. */
+  const [current, setCurrent] = useState<Record<string, string>>({})
 
   const isUpdating = updatingTags.length > 0
 
@@ -799,6 +829,30 @@ export function XraySubscriptionsModal({ onChanged, onAddNew, reloadKey, headerE
     void load(reloadKey !== undefined && reloadKey > 0)
   }, [load, reloadKey])
 
+  // В режиме «Авто» сервер меняет сам Xray — периодически спрашиваем, какой выбран.
+  const hasAuto = subs.some((s) => !s.primary)
+  useEffect(() => {
+    if (!hasAuto) {
+      setCurrent({})
+      return
+    }
+    let stopped = false
+    const poll = async () => {
+      try {
+        const res = await apiCall<ApiResult & { current?: Record<string, string> }>('GET', 'subscriptions/current')
+        if (!stopped && res.success) setCurrent(res.current ?? {})
+      } catch {
+        // Не критично: подпись останется общей.
+      }
+    }
+    void poll()
+    const timer = setInterval(() => void poll(), CURRENT_POLL_MS)
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
+  }, [hasAuto, subs])
+
   // Пинг всех серверов после загрузки списка.
   useEffect(() => {
     if (!loading) void ping(subs.flatMap((s) => withoutAutoServers(s.server_list)))
@@ -818,7 +872,7 @@ export function XraySubscriptionsModal({ onChanged, onAddNew, reloadKey, headerE
   const replaceSub = (next: XraySubscription) => setSubs((prev) => prev.map((s) => (s.tag === next.tag ? next : s)))
 
   async function selectServer(sub: XraySubscription, tag: string) {
-    if (tag === activeServerTag(sub) && tag === sub.primary) return
+    if (tag === sub.primary) return
     replaceSub({ ...sub, primary: tag })
     setSavingServers(sub.tag)
     try {
@@ -828,7 +882,7 @@ export function XraySubscriptionsModal({ onChanged, onAddNew, reloadKey, headerE
       })
       if (!res.success || !res.subscription) throw new Error(res.error)
       replaceSub(res.subscription)
-      showToast(`Выбран сервер ${serverName(sub, tag)}`)
+      showToast(tag ? `Выбран сервер ${serverName(sub, tag)}` : 'Сервер выбирается автоматически')
       if (res.restart_error) showToast(`Не удалось перезапустить Xray: ${res.restart_error}`, 'error')
       onChanged()
     } catch (e: any) {
@@ -946,9 +1000,23 @@ export function XraySubscriptionsModal({ onChanged, onAddNew, reloadKey, headerE
             {all.length === 0 && (
               <div className="text-muted-foreground px-4 py-2 text-xs">Список серверов ещё не получен — обновите подписку</div>
             )}
-            <RadioGroup value={active} onValueChange={(tag) => void selectServer(sub, tag)} disabled={busy} className="gap-0">
+            <RadioGroup
+              value={sub.primary ? active : AUTO_SERVER}
+              onValueChange={(tag) => void selectServer(sub, tag === AUTO_SERVER ? '' : tag)}
+              disabled={busy}
+              className="gap-0"
+            >
+              {all.length > 0 && (
+                <AutoServerRow
+                  selected={!sub.primary}
+                  disabled={busy}
+                  className="px-4 py-1.5"
+                  current={!sub.primary && current[sub.tag] ? serverName(sub, current[sub.tag]) : undefined}
+                  onSelect={() => void selectServer(sub, '')}
+                />
+              )}
               {servers.map((s, i) => {
-                const isActive = s.tag === active
+                const isActive = !!sub.primary && s.tag === active
                 const firstNotRecommended = isNotRecommended(s) && (i === 0 || !isNotRecommended(servers[i - 1]))
                 return (
                   <Fragment key={s.tag}>
@@ -963,14 +1031,6 @@ export function XraySubscriptionsModal({ onChanged, onAddNew, reloadKey, headerE
                     >
                       <RadioGroupItem value={s.tag} disabled={busy} aria-label={`Выбрать ${serverName(sub, s.tag)}`} />
                       <span className="truncate font-medium">{serverName(sub, s.tag)}</span>
-                      {isActive && !sub.primary && (
-                        <span
-                          className="text-muted-foreground shrink-0 text-[11px]"
-                          title="Сервер не выбран — используется первый в списке"
-                        >
-                          авто
-                        </span>
-                      )}
                       <span className="ml-auto w-16 shrink-0 text-right">
                         <PingBadge result={pings[s.tag]} />
                       </span>
