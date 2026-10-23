@@ -894,7 +894,7 @@ export function XraySubscriptionsModal({ onChanged, onAddNew, reloadKey, headerE
         const active = activeServerTag(sub)
         return (
           <div key={sub.tag}>
-            <div className="border-border bg-muted/30 sticky top-0 z-10 grid grid-cols-[1fr_auto_1fr] items-center gap-2 border-b px-4 py-1.5 text-xs backdrop-blur-sm">
+            <div className="border-border bg-muted/30 sticky top-0 z-10 grid grid-cols-[minmax(0,1fr)_auto_auto] items-center sm:grid-cols-[1fr_auto_1fr] gap-2 border-b px-4 py-1.5 text-xs backdrop-blur-sm">
               <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5">
                 <div className="flex min-w-0 items-center gap-1">
                   <span className="mr-1 truncate font-medium">{subscriptionTitle(sub)}</span>
@@ -1016,10 +1016,10 @@ export function XraySubscriptionsModal({ onChanged, onAddNew, reloadKey, headerE
   return (
     <TooltipProvider delayDuration={500} skipDelayDuration={0}>
       <section className="border-border bg-card flex flex-col gap-4 rounded-xl border px-3 py-3 sm:px-4 sm:py-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="flex items-center gap-2 text-lg font-semibold select-none">
-            <IconDatabase size={20} className="text-chart-2" />
-            Подписка и серверы
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          <h2 className="flex min-w-0 items-center gap-1.5 text-[15px] font-semibold select-none sm:gap-2 sm:text-lg">
+            <IconDatabase className="text-chart-2 size-4.5 shrink-0 sm:size-5" />
+            <span className="truncate">Подписка и серверы</span>
           </h2>
           <Button
             variant="outline"
@@ -1027,10 +1027,11 @@ export function XraySubscriptionsModal({ onChanged, onAddNew, reloadKey, headerE
             onClick={onAddNew}
             aria-label="Добавить подписку или сервер"
             title="Добавить подписку или сервер"
+            className="shrink-0 max-sm:size-6 max-sm:[&_svg]:size-3.5"
           >
             <IconPlus />
           </Button>
-          <div className="ml-auto flex items-center gap-2">{headerExtra}</div>
+          <div className="ml-auto flex shrink-0 items-center gap-2">{headerExtra}</div>
         </div>
         <div className="flex max-h-[70dvh] min-h-0 flex-col">{body}</div>
       </section>
