@@ -369,7 +369,9 @@ pub async fn post_update(State(state): State<AppState>, Json(req): Json<UpdateRe
 
         log("INFO", "Установка обновления...".into());
 
-        let source = tmp_dir.join(format!("xkeen-ui_{}", ver));
+        let target = "/opt/sbin/xkeen-ui";
+        // Временный файл — рядом с целевым: /opt/tmp может быть на другой ФС, и rename падает с EXDEV.
+        let source = Path::new("/opt/sbin").join(format!(".xkeen-ui_{}.tmp", ver));
         let install = async {
             save(bin_d, source.clone())
                 .await
@@ -401,10 +403,10 @@ pub async fn post_update(State(state): State<AppState>, Json(req): Json<UpdateRe
                 return Err(e);
             }
 
-            let target = "/opt/sbin/xkeen-ui";
-            fs::rename(&source, target)
-                .await
-                .map_err(|e| format!("Ошибка установки: {}", e))?;
+            if let Err(e) = fs::rename(&source, target).await {
+                _ = fs::remove_file(&source).await;
+                return Err(format!("Ошибка установки: {}", e));
+            }
 
             _ = fs::set_permissions(target, std::fs::Permissions::from_mode(0o755)).await;
             Ok::<(), String>(())
