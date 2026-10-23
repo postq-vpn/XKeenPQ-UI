@@ -195,7 +195,7 @@ async fn download(
                     if let Some(f) = &mut file {
                         if f.write_all(&chunk).await.is_err() {
                             log("WARN", format!("Ошибка записи на диск ({})", source));
-                            _ = fs::remove_file(path);
+                            _ = fs::remove_file(path).await;
                             return None;
                         }
                     } else {
@@ -289,8 +289,9 @@ async fn save(dl: DownloadResult, out_path: PathBuf) -> std::io::Result<()> {
         match dl {
             DownloadResult::Ram(d) => out.write_all(&d)?,
             DownloadResult::Disk(p) => {
-                std::io::copy(&mut File::open(&p)?, &mut out)?;
+                let copied = File::open(&p).and_then(|mut f| std::io::copy(&mut f, &mut out));
                 _ = std::fs::remove_file(p);
+                copied?;
             }
         }
         out.sync_data()
@@ -398,20 +399,21 @@ pub async fn post_update(State(state): State<AppState>, Json(req): Json<UpdateRe
             .map_err(|e| format!("Ошибка проверки: {}", e))
             .and_then(|r| r);
 
-            if let Err(e) = integrity_check {
-                _ = std::fs::remove_file(&source);
-                return Err(e);
-            }
+            integrity_check?;
 
-            if let Err(e) = fs::rename(&source, target).await {
-                _ = fs::remove_file(&source).await;
-                return Err(format!("Ошибка установки: {}", e));
-            }
+            fs::rename(&source, target)
+                .await
+                .map_err(|e| format!("Ошибка установки: {}", e))?;
 
             _ = fs::set_permissions(target, std::fs::Permissions::from_mode(0o755)).await;
             Ok::<(), String>(())
         };
-        match tokio::time::timeout(SELF_INSTALL_TIMEOUT, install).await {
+        let installed = tokio::time::timeout(SELF_INSTALL_TIMEOUT, install).await;
+        if !matches!(installed, Ok(Ok(()))) {
+            // Недописанный или отбракованный файл не должен оставаться на накопителе.
+            _ = fs::remove_file(&source).await;
+        }
+        match installed {
             Ok(Ok(())) => {}
             Ok(Err(e)) => return response(false, Some(e)),
             Err(_) => {
@@ -535,21 +537,24 @@ pub async fn post_update(State(state): State<AppState>, Json(req): Json<UpdateRe
         Ok(())
     }
 
-    let tmp_name = format!("{}_{}", core_name, ver);
-    let unpack = tokio::task::spawn_blocking(move || -> std::io::Result<()> {
-        let bin = tmp_dir.join(&tmp_name);
-        match dl_res {
-            DownloadResult::Ram(d) => unpack(Cursor::new(d), &bin, &core_name)?,
-            DownloadResult::Disk(p) => {
-                unpack(File::open(&p)?, &bin, &core_name)?;
-                _ = std::fs::remove_file(p);
+    let bin = tmp_dir.join(format!("{}_{}", core_name, ver));
+    let unpack = tokio::task::spawn_blocking({
+        let bin = bin.clone();
+        move || -> std::io::Result<()> {
+            match dl_res {
+                DownloadResult::Ram(d) => unpack(Cursor::new(d), &bin, &core_name),
+                DownloadResult::Disk(p) => {
+                    let res = File::open(&p).and_then(|f| unpack(f, &bin, &core_name));
+                    _ = std::fs::remove_file(p);
+                    res
+                }
             }
-        };
-        Ok(())
+        }
     })
     .await;
 
     if let Ok(Err(e)) | Err(e) = unpack.map_err(|e| std::io::Error::other(e.to_string())) {
+        _ = fs::remove_file(&bin).await;
         return response(false, Some(format!("Ошибка распаковки: {}", e)));
     }
 
@@ -585,6 +590,7 @@ pub async fn post_update(State(state): State<AppState>, Json(req): Json<UpdateRe
             _ = crate::controller::run_init_command(&state, &["stop"]).await;
         }
         if let Err(e) = fs::copy(&source, &target).await {
+            _ = fs::remove_file(&source).await;
             return response(false, Some(format!("Ошибка установки: {}", e)));
         }
         _ = fs::remove_file(&source).await;
