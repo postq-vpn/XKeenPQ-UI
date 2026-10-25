@@ -15,6 +15,10 @@
         "outboundTag": "subscription_1"
       },
       {
+        "domain": ["domain:swallow.apple.com"],
+        "outboundTag": "subscription_1"
+      },
+      {
         "domain": [
           "domain:dewucdn.com",
           "domain:wechat.com",
@@ -45,14 +49,7 @@
           "domain:rockstarnorth.com",
           "domain:rockstargames.helpshift.com",
           "domain:yandex.cloud",
-          "domain:rw.kxp.one",
-          "domain:apple.com",
-          "domain:icloud.com",
-          "domain:mzstatic.com",
-          "domain:icloud-content.com",
-          "domain:cdn-apple.com",
-          "domain:aaplimg.com",
-          "domain:apple-cloudkit.com"
+          "domain:rw.kxp.one"
         ],
         "outboundTag": "direct"
       },
@@ -99,6 +96,11 @@
           "domain:claude.com"
         ],
         "outboundTag": "subscription_1"
+      },
+      {
+        "port": "80",
+        "network": "tcp",
+        "outboundTag": "direct"
       },
       {
         "ip": [
