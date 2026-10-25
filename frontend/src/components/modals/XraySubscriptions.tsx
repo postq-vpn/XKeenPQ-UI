@@ -582,6 +582,10 @@ function NotRecommendedLabel() {
 /** Значение пункта «Авто» в списках серверов; на backend это пустой `primary`. */
 const AUTO_SERVER = '__auto__'
 
+/** Подсветка строки сервера под курсором (строка — `group`): имя и радио окрашиваются в цвет бренда. */
+const ROW_HOVER_TEXT = 'transition-colors group-hover:text-primary'
+const ROW_HOVER_RADIO = 'group-hover:border-primary'
+
 /** Как часто спрашивать у Xray, какой сервер выбран в режиме «Авто». */
 const CURRENT_POLL_MS = 15000
 
@@ -601,15 +605,15 @@ function AutoServerRow(props: {
   return (
     <div
       className={cn(
-        'border-border/50 hover:bg-muted/30 flex items-center gap-3 border-b text-[13px]',
+        'group border-border/50 flex items-center gap-3 border-b text-[13px]',
         disabled ? 'cursor-default' : 'cursor-pointer',
-        selected && 'bg-muted/30',
+        selected ? 'bg-accent' : !disabled && 'hover:bg-muted',
         className
       )}
       onClick={() => !disabled && onSelect()}
     >
-      <RadioGroupItem value={AUTO_SERVER} disabled={disabled} aria-label="Авто" />
-      <span className="shrink-0 font-medium">⚡ Авто</span>
+      <RadioGroupItem value={AUTO_SERVER} disabled={disabled} aria-label="Авто" className={cn(!disabled && ROW_HOVER_RADIO)} />
+      <span className={cn('shrink-0 font-medium', !disabled && ROW_HOVER_TEXT)}>⚡ Авто</span>
       <span className="text-muted-foreground truncate text-[11px]">{current ? `сейчас: ${current}` : 'самый быстрый рабочий сервер'}</span>
       <span className="ml-auto w-16 shrink-0 text-right">
         <PingBadge result={ping} />
@@ -893,14 +897,19 @@ export function XraySubscriptionsModal({ onChanged, onAddNew, reloadKey, headerE
                     {firstNotRecommended && <NotRecommendedLabel />}
                     <div
                       className={cn(
-                        'border-border/50 hover:bg-muted/30 flex items-center gap-3 border-b px-4 py-1.5 text-[13px] last:border-b-0',
+                        'group border-border/50 flex items-center gap-3 border-b px-4 py-1.5 text-[13px] last:border-b-0',
                         busy ? 'cursor-default' : 'cursor-pointer',
-                        isActive && 'bg-muted/30'
+                        isActive ? 'bg-accent' : !busy && 'hover:bg-muted'
                       )}
                       onClick={() => !busy && void selectServer(sub, s.tag)}
                     >
-                      <RadioGroupItem value={s.tag} disabled={busy} aria-label={`Выбрать ${serverName(sub, s.tag)}`} />
-                      <span className="truncate font-medium">{serverName(sub, s.tag)}</span>
+                      <RadioGroupItem
+                        value={s.tag}
+                        disabled={busy}
+                        aria-label={`Выбрать ${serverName(sub, s.tag)}`}
+                        className={cn(!busy && ROW_HOVER_RADIO)}
+                      />
+                      <span className={cn('truncate font-medium', !busy && ROW_HOVER_TEXT)}>{serverName(sub, s.tag)}</span>
                       <span className="ml-auto w-16 shrink-0 text-right">
                         <PingBadge result={pings[s.tag]} />
                       </span>
