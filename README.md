@@ -58,7 +58,7 @@
 
 | Куда | Что |
 | --- | --- |
-| Через VPN | DNS-запросы (порт 53); сайты и сервисы из списков [zkeen](https://github.com/jameszeroX/zkeen-domains), например YouTube; TikTok, Claude; адреса крупных CDN и хостингов из [zkeen-ip](https://github.com/jameszeroX/zkeen-ip), например Cloudflare и Amazon |
+| Через VPN | Сайты и сервисы из списков [zkeen](https://github.com/jameszeroX/zkeen-domains), например YouTube; TikTok, Claude; адреса крупных CDN и хостингов из [zkeen-ip](https://github.com/jameszeroX/zkeen-ip), например Cloudflare и Amazon |
 | Напрямую | Российские сайты и сервисы, китайские сервисы, Steam, Rockstar, торренты, обычный HTTP (TCP 80) и весь остальной трафик, не попавший в правила выше |
 | Блокируется | QUIC (UDP 443) — приложения сразу переходят на обычный TCP, который стабильнее работает через VPN |
 

@@ -11,10 +11,6 @@
         "outboundTag": "direct"
       },
       {
-        "port": "53",
-        "outboundTag": "subscription_1"
-      },
-      {
         "domain": ["domain:swallow.apple.com"],
         "outboundTag": "subscription_1"
       },
