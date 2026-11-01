@@ -645,7 +645,8 @@ export const serverName = (sub: XraySubscription, tag: string) =>
 /** Сервер, который сейчас работает под тегом подписки (как в backend `active_server`). */
 export function activeServerTag(sub: XraySubscription) {
   const enabled = withoutAutoServers(sub.server_list)
-  return enabled.find((s) => s.tag === sub.primary)?.tag ?? enabled[0]?.tag ?? ''
+  const fallback = splitRecommended(enabled).recommended[0] ?? enabled[0]
+  return enabled.find((s) => s.tag === sub.primary)?.tag ?? fallback?.tag ?? ''
 }
 
 interface ModalProps {
