@@ -120,12 +120,17 @@ pub async fn put_backup(State(state): State<AppState>) -> impl IntoResponse {
     .await
 }
 
-pub async fn post_backup(Json(req): Json<BackupReq>) -> impl IntoResponse {
-    run_blocking(
+pub async fn post_backup(State(state): State<AppState>, Json(req): Json<BackupReq>) -> impl IntoResponse {
+    let _guard = state.app_config_lock.lock().await;
+    let response = run_blocking(
         tokio::task::spawn_blocking(move || restore_backup_sync(&req.name, req.contents).map(|_| None::<()>)),
         "Не удалось восстановить бэкап",
     )
-    .await
+    .await;
+    // Иначе панель продолжит работать со старыми настройками, а следующий вход запишет
+    // старый пароль поверх восстановленного.
+    crate::settings::reload(&state).await;
+    response
 }
 
 pub async fn delete_backup(Json(req): Json<BackupReq>) -> impl IntoResponse {

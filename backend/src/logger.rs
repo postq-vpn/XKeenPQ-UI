@@ -69,6 +69,10 @@ pub fn process_log_line(line: String, tz: i32) -> String {
             }
     }
 
+    // Строка уйдёт в браузер как HTML, а в логах бывает чужой текст: ответы и названия от
+    // провайдеров подписок, домены из трафика. Разметка панели добавляется уже после экранирования.
+    out = out.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+
     out = ANSI_RE
         .replace_all(&out, |caps: &regex_lite::Captures<'_>| match &caps[0] {
             "\x1b[32m" | "\x1b[92m" => r#"<span style="color: #00cc00;">"#,
@@ -94,4 +98,20 @@ pub fn process_log_line(line: String, tz: i32) -> String {
         .to_string();
 
     format!(r#"<div class="log-line">{}</div>"#, out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn foreign_text_is_escaped_panel_markup_is_kept() {
+        let out = process_log_line("[Error] HTTP 500: <img src=x onerror=alert(1)> a&b".into(), 3);
+        assert!(!out.contains("<img"), "{out}");
+        assert!(out.contains("&lt;img src=x onerror=alert(1)&gt; a&amp;b"), "{out}");
+        assert!(out.contains(r#"<span class="log-badge log-badge-error" data-filter="ERROR">ERROR</span>"#), "{out}");
+
+        let colored = process_log_line("\x1b[31mfail\x1b[0m".into(), 3);
+        assert!(colored.contains(r#"<span style="color: #ef4444;">fail</span>"#), "{colored}");
+    }
 }

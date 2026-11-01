@@ -284,7 +284,21 @@ async fn load_store() -> Store {
     store
 }
 
+/// Что мешает прочитать хранилище. `load_store` в этом случае отдаёт пустой список, поэтому
+/// пока файл не читается, его нельзя перезаписывать и нельзя менять конфиги Xray по этому списку.
+async fn store_problem(path: &str) -> Option<String> {
+    let problem = match tokio::fs::read_to_string(path).await {
+        Ok(content) => serde_json::from_str::<Store>(&content).err()?.to_string(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => e.to_string(),
+    };
+    Some(format!("Файл подписок {path} не читается ({problem}): восстановите его из бэкапа или удалите"))
+}
+
 async fn save_store(store: &Store) -> Result<(), String> {
+    if let Some(problem) = store_problem(SUBSCRIPTIONS_FILE).await {
+        return Err(problem);
+    }
     tokio::fs::create_dir_all(XKEEN_CONF_DIR)
         .await
         .map_err(|e| e.to_string())?;
@@ -766,6 +780,11 @@ async fn restart_xray_if_running() -> Option<String> {
     if crate::controller::get_pid("xray").is_empty() {
         return None;
     }
+    // soft_restart сначала убивает работающий Xray: с плохим конфигом VPN пропал бы совсем
+    if let Err(e) = crate::configs::test_confdir(std::path::Path::new(XRAY_CONF_DIR)).await {
+        log("ERROR", format!("Конфигурация Xray не прошла проверку:\n{e}"));
+        return Some("Конфигурация Xray не прошла проверку, Xray не перезапущен. Подробности в журнале".into());
+    }
     log("INFO", "Перезапуск Xray после обновления подписок".into());
     crate::controller::soft_restart("xray").await.err()
 }
@@ -774,6 +793,10 @@ async fn restart_xray_if_running() -> Option<String> {
 /// направляет на неё проксируемые правила routing, включает или убирает балансировщики
 /// подписок и перезапускает Xray, если что-то изменилось.
 async fn finish_change(store: &mut Store, mut changed: bool) -> Option<String> {
+    if let Some(problem) = store_problem(SUBSCRIPTIONS_FILE).await {
+        log("ERROR", problem.clone());
+        return Some(problem);
+    }
     if !store.subscriptions.iter().any(|s| s.proxy)
         && let Some(first) = store.subscriptions.first_mut() {
             first.proxy = true;
@@ -817,6 +840,10 @@ pub fn start_scheduler(state: AppState) {
         let mut first_tick = true;
         loop {
             tokio::time::sleep(SCHEDULER_TICK).await;
+            if let Some(problem) = store_problem(SUBSCRIPTIONS_FILE).await {
+                log("ERROR", problem);
+                continue;
+            }
             // Геобазы качаются без блокировки подписок: загрузка может идти минуту и дольше.
             // Если геобазы уже обновляет задача XKeen (`xkeen -ug` в cron), второй раз их не качаем.
             let geo_due = {
@@ -1057,6 +1084,10 @@ pub async fn post_subscription(State(state): State<AppState>, Json(mut sub): Jso
     }
 
     let _guard = STORE_LOCK.lock().await;
+    // До записи файла outbounds: сохранить подписку всё равно не получится
+    if let Some(problem) = store_problem(SUBSCRIPTIONS_FILE).await {
+        return fail(problem);
+    }
     let mut store = load_store().await;
     if store.subscriptions.iter().any(|s| s.tag == sub.tag) {
         return fail(format!("Подписка «{}» уже существует", sub.tag));
@@ -1334,6 +1365,24 @@ mod tests {
 
         // выбранный отключён — под тегом первый включённый
         assert_eq!(with_active_alias(&sub, enabled[..1].to_vec())[0]["protocol"], "vless");
+    }
+
+    #[tokio::test]
+    async fn damaged_store_is_reported() {
+        let dir = std::env::temp_dir().join(format!("xkeen-ui-store-{}", std::process::id()));
+        _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("s.json");
+        let p = path.to_str().unwrap();
+
+        assert!(store_problem(p).await.is_none());
+        std::fs::write(&path, r#"{"subscriptions":[]}"#).unwrap();
+        assert!(store_problem(p).await.is_none());
+        for damaged in ["", r#"{"subscriptions":[{"tag":"#] {
+            std::fs::write(&path, damaged).unwrap();
+            assert!(store_problem(p).await.is_some(), "{damaged:?}");
+        }
+        _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

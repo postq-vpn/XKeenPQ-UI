@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::time::Duration;
 
 #[derive(Serialize)]
 struct ConfigItem {
@@ -266,14 +267,29 @@ async fn validate_core(files: &[ConfigReq]) -> Result<(), String> {
         }
     }
 
-    let mut cmd = tokio::process::Command::new("xray");
-    cmd.args(["-test", "-confdir"]).arg(&temp_dir);
-    cmd.env("XRAY_LOCATION_ASSET", XRAY_ASSET_DIR);
-
-    let output = cmd.output().await;
+    let result = test_confdir(&temp_dir).await;
     _ = tokio::fs::remove_dir_all(&temp_dir).await;
+    result
+}
 
-    let output = output.map_err(|e| e.to_string())?;
+/// На слабых роутерах проверка с геобазами идёт долго, но не должна висеть вечно.
+const CORE_TEST_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Проверка каталога конфигов через `xray -test`; ошибка — вывод Xray.
+pub async fn test_confdir(dir: &Path) -> Result<(), String> {
+    run_core_test("xray", dir, CORE_TEST_TIMEOUT).await
+}
+
+async fn run_core_test(bin: &str, dir: &Path, timeout: Duration) -> Result<(), String> {
+    let mut cmd = tokio::process::Command::new(bin);
+    cmd.args(["-test", "-confdir"]).arg(dir);
+    cmd.env("XRAY_LOCATION_ASSET", XRAY_ASSET_DIR);
+    cmd.kill_on_drop(true);
+
+    let output = tokio::time::timeout(timeout, cmd.output())
+        .await
+        .map_err(|_| format!("{bin} -test: превышено время ожидания"))?
+        .map_err(|e| e.to_string())?;
     if output.status.success() {
         return Ok(());
     }
@@ -289,4 +305,37 @@ fn api_ok() -> Json<ApiResponse<()>> {
 
 fn api_error(error: impl Into<String>) -> Json<ApiResponse<()>> {
     Json(ApiResponse { success: false, error: Some(error.into()), data: None })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fake_core(name: &str, body: &str) -> (std::path::PathBuf, String) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("xkeen-ui-core-test-{name}-{}", std::process::id()));
+        _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let bin = dir.join("xray");
+        fs::write(&bin, format!("#!/bin/sh\n{body}\n")).unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        let bin = bin.to_string_lossy().into_owned();
+        (dir, bin)
+    }
+
+    #[tokio::test]
+    async fn core_test_reports_result() {
+        let (dir, ok) = fake_core("ok", "exit 0");
+        assert!(run_core_test(&ok, &dir, Duration::from_secs(5)).await.is_ok());
+
+        let (dir, bad) = fake_core("bad", "echo 'bad outbound' >&2; exit 1");
+        let err = run_core_test(&bad, &dir, Duration::from_secs(5)).await.unwrap_err();
+        assert!(err.contains("bad outbound"), "{err}");
+
+        let (dir, hung) = fake_core("hung", "exec sleep 30");
+        let err = run_core_test(&hung, &dir, Duration::from_millis(200)).await.unwrap_err();
+        assert!(err.contains("превышено время ожидания"), "{err}");
+
+        assert!(run_core_test("/nonexistent/xray", &dir, Duration::from_secs(1)).await.is_err());
+    }
 }

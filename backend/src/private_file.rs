@@ -19,6 +19,8 @@ pub async fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> io::Re
         .await?;
     file.write_all(contents.as_ref()).await?;
     file.flush().await?;
+    // Данные — на накопитель до rename: иначе при обрыве питания файл окажется пустым
+    file.sync_all().await?;
     tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(MODE)).await
 }
 

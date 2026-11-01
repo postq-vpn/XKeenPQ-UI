@@ -11,11 +11,10 @@ pub async fn get_settings(State(state): State<AppState>) -> impl IntoResponse {
 
 pub async fn patch_settings(State(state): State<AppState>, Json(patch): Json<serde_json::Value>) -> impl IntoResponse {
     let _guard = state.app_config_lock.lock().await;
-    let mut file_json = tokio::fs::read_to_string(APP_CONFIG)
-        .await
-        .ok()
-        .and_then(|c| serde_json::from_str(&c).ok())
-        .unwrap_or(serde_json::json!({}));
+    let mut file_json = match read_config(APP_CONFIG).await {
+        Ok(json) => json,
+        Err(e) => return Json(serde_json::json!({"success": false, "error": e})),
+    };
 
     let patch_sets_tz = patch.get("log").and_then(|l| l.get("timezone")).is_some();
 
@@ -101,5 +100,111 @@ fn json_merge(a: &mut serde_json::Value, b: serde_json::Value) {
             }
         }
         (a, b) => *a = b,
+    }
+}
+
+/// Файл настроек как JSON-объект; файла ещё нет — пустой объект. Ошибка — чтобы запись
+/// не заменила настройки, которые сейчас не удалось прочитать.
+pub async fn read_config(path: &str) -> Result<serde_json::Value, String> {
+    let content = match tokio::fs::read_to_string(path).await {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(serde_json::json!({})),
+        Err(e) => return Err(format!("Не удалось прочитать {path}: {e}")),
+    };
+    serde_json::from_str::<serde_json::Value>(&content)
+        .map_err(|e| e.to_string())
+        .and_then(|json| if json.is_object() { Ok(json) } else { Err("ожидался объект".into()) })
+        .map_err(|e| format!("Файл {path} повреждён: {e}"))
+}
+
+/// Настройки по умолчанию, но с включённой авторизацией: если прочитать настройки не удалось,
+/// неизвестно, был ли задан пароль, и панель не должна открываться без него.
+pub fn locked_defaults() -> AppSettings {
+    let mut settings = AppSettings::default();
+    settings.auth.enabled = true;
+    settings
+}
+
+/// Повреждённый файл настроек откладывается в `<path>.corrupt`, вместо него пишутся
+/// `locked_defaults`: пароль задаётся заново, остальные настройки можно поднять из копии.
+pub fn recover_corrupt_config(path: &str) -> AppSettings {
+    let settings = locked_defaults();
+    let corrupt = format!("{path}.corrupt");
+    match std::fs::rename(path, &corrupt) {
+        Ok(()) => crate::logger::log("ERROR", format!("Файл настроек повреждён, копия сохранена: {corrupt}")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => crate::logger::log("ERROR", format!("Не удалось сохранить копию {corrupt}: {e}")),
+    }
+    let tmp = format!("{path}.tmp");
+    let written = crate::private_file::create(std::path::Path::new(&tmp)).and_then(|mut file| {
+        use std::io::Write;
+        file.write_all(serde_json::to_string_pretty(&settings).unwrap().as_bytes())?;
+        file.sync_all()?;
+        std::fs::rename(&tmp, path)
+    });
+    if let Err(e) = written {
+        crate::logger::log("ERROR", format!("Не удалось записать {path}: {e}"));
+    }
+    settings
+}
+
+/// Перечитывает настройки с диска в память (после восстановления из бэкапа). Если файла нет
+/// или он не читается, остаётся то, что в памяти.
+pub async fn reload(state: &AppState) {
+    let content = match tokio::fs::read_to_string(APP_CONFIG).await {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => return crate::logger::log("ERROR", format!("Не удалось прочитать {APP_CONFIG}: {e}")),
+    };
+    match serde_json::from_str::<AppSettings>(&content) {
+        Ok(mut settings) => {
+            settings.normalize_proxies();
+            *state.settings.write().unwrap() = settings;
+        }
+        Err(e) => crate::logger::log("ERROR", format!("Настройки не применены, файл {APP_CONFIG} повреждён: {e}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("xkeen-ui-settings-{name}-{}", std::process::id()));
+        _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[tokio::test]
+    async fn read_config_refuses_damaged_file() {
+        let dir = temp_dir("read");
+        let path = dir.join("c.json");
+        let p = path.to_str().unwrap();
+
+        assert_eq!(read_config(p).await.unwrap(), serde_json::json!({}));
+        for damaged in ["", "{\"auth\":", "[1]"] {
+            std::fs::write(&path, damaged).unwrap();
+            assert!(read_config(p).await.is_err(), "{damaged:?}");
+        }
+        std::fs::write(&path, "{\"a\":1}").unwrap();
+        assert_eq!(read_config(p).await.unwrap()["a"], 1);
+        _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn corrupt_config_is_kept_and_auth_stays_on() {
+        let dir = temp_dir("recover");
+        let path = dir.join("c.json");
+        let p = path.to_str().unwrap();
+        std::fs::write(&path, "{\"auth\":{\"password_hash\":\"x").unwrap();
+
+        assert!(recover_corrupt_config(p).auth.enabled);
+
+        let kept = std::fs::read_to_string(format!("{p}.corrupt")).unwrap();
+        assert!(kept.contains("password_hash"));
+        let saved: AppSettings = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(saved.auth.enabled && saved.auth.password_hash.is_none());
+        _ = std::fs::remove_dir_all(&dir);
     }
 }

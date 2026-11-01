@@ -599,9 +599,14 @@ fn load_settings() -> AppSettings {
                 return AppSettings::default();
             }
         }
+        // Не UTF-8: мусор в файле, например после обрыва питания
+        Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+            log("ERROR", format!("Ошибка чтения {}: {}", APP_CONFIG, e));
+            return settings::recover_corrupt_config(APP_CONFIG);
+        }
         Err(e) => {
             log("ERROR", format!("Ошибка чтения {}: {}", APP_CONFIG, e));
-            return AppSettings::default();
+            return settings::locked_defaults();
         }
     };
 
@@ -612,7 +617,7 @@ fn load_settings() -> AppSettings {
         }
         Err(e) => {
             log("ERROR", format!("Ошибка парсинга {}: {}", path, e));
-            AppSettings::default()
+            settings::recover_corrupt_config(APP_CONFIG)
         }
     }
 }

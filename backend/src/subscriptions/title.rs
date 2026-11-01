@@ -31,6 +31,11 @@ fn title_from_body(body: &str) -> Option<String> {
     find(body).or_else(|| {
         // Заголовок стоит в начале списка — декодируем только первые ~4 КБ base64 (кратно 4 символам).
         let mut head: String = body.split_whitespace().flat_map(str::chars).take(4096).collect();
+        // Не ASCII — это не base64 (например, список ссылок с кириллицей в именах), а truncate
+        // ниже паникует, если попадает внутрь многобайтового символа.
+        if !head.is_ascii() {
+            return None;
+        }
         head.truncate(head.len() / 4 * 4);
         let decoded = decode_base64(&head)?;
         find(&String::from_utf8_lossy(&decoded))
@@ -146,6 +151,15 @@ pub fn suggest_tag(title: Option<&str>, url: &str, taken: &HashSet<String>) -> S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plain_body_with_cyrillic_does_not_panic() {
+        // Длина тела при любом остатке от деления на 4, последний символ — двухбайтовый
+        for pad in 0..4 {
+            let body = format!("vless://id@example{}.com:443#Нидерланды\n", "x".repeat(pad));
+            assert_eq!(from_response(&TitleHeaders::default(), &body), None, "{body}");
+        }
+    }
     use reqwest::header::{HeaderMap, HeaderValue};
 
     #[test]
