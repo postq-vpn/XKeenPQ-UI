@@ -454,6 +454,7 @@ async fn main() {
     };
     version::start_update_checker(state.clone());
     subscriptions::start_scheduler(state.clone());
+    subscriptions::start_watch();
     xray_log::start_log_trimmer();
     if log_config_changed && !controller::get_pid("xray").is_empty() {
         log("INFO", "Перезапуск Xray после изменения настроек логов".into());

@@ -173,6 +173,15 @@ async fn ping_through_xray(outbounds: &[Value]) -> Result<Vec<Result<u64, String
     Ok(results)
 }
 
+/// Проверка серверов для подстраховки выбранного сервера (см. `failover`).
+pub(super) async fn check_outbounds(outbounds: &[Value]) -> Result<Vec<Result<u64, String>>, String> {
+    if outbounds.is_empty() {
+        return Ok(vec![]);
+    }
+    let _guard = PING_LOCK.lock().await;
+    ping_through_xray(outbounds).await
+}
+
 /// Пинг серверов: `{ results: { tag: { ms, error } } }`.
 pub async fn post_ping(Json(req): Json<PingReq>) -> impl IntoResponse {
     if req.servers.len() > MAX_PING_TARGETS {

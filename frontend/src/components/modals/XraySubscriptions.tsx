@@ -588,6 +588,8 @@ const ROW_HOVER = 'hover:bg-muted hover:shadow-[inset_2px_0_0_var(--ring)]'
 
 /** Как часто спрашивать у Xray, какой сервер выбран в режиме «Авто». */
 const CURRENT_POLL_MS = 15000
+/** Как часто перечитывать подписки при ручном выборе: панель сама включает «Авто», если сервер не отвечает. */
+const FAILOVER_POLL_MS = 60_000
 
 /**
  * Пункт «Авто»: Xray сам ведёт трафик через самый быстрый рабочий сервер (backend balancer.rs).
@@ -725,6 +727,14 @@ export function XraySubscriptionsModal({ onChanged, onAddNew, reloadKey, headerE
       clearInterval(timer)
     }
   }, [hasAuto, subs])
+
+  // Выбранный сервер не отвечает — панель сама включает «Авто», поэтому перечитываем подписки.
+  const hasManual = subs.some((s) => !!s.primary)
+  useEffect(() => {
+    if (!hasManual) return
+    const timer = setInterval(() => void load(true), FAILOVER_POLL_MS)
+    return () => clearInterval(timer)
+  }, [hasManual, load])
 
   // Пинг всех серверов после загрузки списка и когда серверы поменялись (например, добавили подписку).
   const serverTags = subs.flatMap((s) => withoutAutoServers(s.server_list).map((x) => x.tag)).join('\n')

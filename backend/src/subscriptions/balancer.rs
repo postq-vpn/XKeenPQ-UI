@@ -49,7 +49,7 @@ fn is_balanced(sub: &Subscription) -> bool {
 }
 
 /// Серверы, которые проверяет observatory: зарубежные, а если таких нет — все включённые.
-fn pool(sub: &Subscription) -> Vec<String> {
+pub(super) fn pool(sub: &Subscription) -> Vec<String> {
     let Ok(enabled) = enabled_outbounds(sub, &sub.cached_outbounds) else {
         return vec![];
     };

@@ -7,6 +7,7 @@
 
 mod balancer;
 mod device;
+mod failover;
 mod geo_files;
 mod parser;
 mod ping;
@@ -16,6 +17,7 @@ mod title;
 
 pub use balancer::get_current;
 pub use device::get_device;
+pub use failover::start_watch;
 pub use ping::post_ping;
 pub use selection::post_primary;
 
