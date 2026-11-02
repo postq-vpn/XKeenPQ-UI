@@ -7,6 +7,9 @@ use std::net::SocketAddr;
 /// Что клиент может менять через API. Пути конфигов и данные пароля меняются только на самом
 /// роутере: с ними сессия панели давала бы запись в любой файл и вход без пароля.
 const PATCHABLE_SECTIONS: [&str; 5] = ["gui", "updater", "log", "auth", "plugins"];
+/// Откуда скачиваются файлы, которые панель запускает от root. Менять только из локальной сети:
+/// иначе чужая сессия из интернета поставила бы свой файл.
+const LAN_ONLY_UPDATER_KEYS: [&str; 2] = ["github_proxy", "xray_repo"];
 
 pub async fn get_settings(State(state): State<AppState>) -> impl IntoResponse {
     let s = state.settings.read().unwrap();
@@ -21,15 +24,20 @@ fn check_patch(patch: &serde_json::Value, local: bool) -> Result<(), &'static st
     if sections.keys().any(|k| !PATCHABLE_SECTIONS.contains(&k.as_str())) {
         return Err("Эти настройки нельзя менять через панель");
     }
-    let Some(auth) = sections.get("auth") else {
-        return Ok(());
-    };
-    let auth = auth.as_object().ok_or("Ожидался объект")?;
-    if auth.keys().any(|k| k != "enabled") {
-        return Err("Эти настройки нельзя менять через панель");
+    if let Some(updater) = sections.get("updater") {
+        let updater = updater.as_object().ok_or("Ожидался объект")?;
+        if !local && LAN_ONLY_UPDATER_KEYS.iter().any(|k| updater.contains_key(*k)) {
+            return Err("Источник обновлений можно менять только из локальной сети");
+        }
     }
-    if !local {
-        return Err("Авторизацию можно менять только из локальной сети");
+    if let Some(auth) = sections.get("auth") {
+        let auth = auth.as_object().ok_or("Ожидался объект")?;
+        if auth.keys().any(|k| k != "enabled") {
+            return Err("Эти настройки нельзя менять через панель");
+        }
+        if !local {
+            return Err("Авторизацию можно менять только из локальной сети");
+        }
     }
     Ok(())
 }
@@ -211,6 +219,11 @@ mod tests {
         assert!(check(serde_json::json!({"auth": null}), true).is_err());
         assert!(check(serde_json::json!({"append_config_paths": {"xray": ["/opt/etc"]}}), true).is_err());
         assert!(check(serde_json::json!([]), true).is_err());
+        assert!(check(serde_json::json!({"updater": {"auto_check_ui": true}}), false).is_ok());
+        assert!(check(serde_json::json!({"updater": {"xray_repo": "evil/repo"}}), true).is_ok());
+        assert!(check(serde_json::json!({"updater": {"xray_repo": "evil/repo"}}), false).is_err());
+        assert!(check(serde_json::json!({"updater": {"github_proxy": ["https://evil"]}}), false).is_err());
+        assert!(check(serde_json::json!({"updater": null}), false).is_err());
     }
 
     fn temp_dir(name: &str) -> std::path::PathBuf {

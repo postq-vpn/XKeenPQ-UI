@@ -539,6 +539,7 @@ async fn main() {
         .route("/api/geo/ip", get(geo::get_geoip))
         .route("/api/auth/logout", post(auth::post_logout))
         .route("/api/auth/reset", post(auth::post_auth_reset))
+        .route("/api/ws-ticket", get(websocket::get_ws_ticket))
         .route("/ws", get(websocket::ws_handler))
         .route_layer(middleware::from_fn({
             let state = state.clone();

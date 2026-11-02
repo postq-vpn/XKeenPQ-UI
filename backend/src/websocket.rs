@@ -1,21 +1,47 @@
 use crate::logger::{process_log_line, ts};
 use crate::types::*;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::http::{HeaderMap, StatusCode, header};
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Json};
 use futures_util::sink::SinkExt;
 use futures_util::stream::StreamExt;
 use notify::{RecursiveMode, Watcher};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant};
+use uuid::Uuid;
 
 static WS_COUNTER: AtomicU32 = AtomicU32::new(0);
+const TICKET_TTL: Duration = Duration::from_secs(30);
+static TICKETS: LazyLock<Mutex<HashMap<String, Instant>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// WebSocket не подчиняется CORS, а `SameSite` не отделяет соседние домены `*.netcraze.pro`, у них
-/// общий сайт: браузер открыл бы журнал со страницы чужого роутера. Без `Origin` это не браузер.
+fn drop_expired(tickets: &mut HashMap<String, Instant>) {
+    tickets.retain(|_, issued| issued.elapsed() < TICKET_TTL);
+}
+
+/// Одноразовый билет на подключение к журналу. Прокси роутера убирает `Origin`, а домены
+/// `*.netcraze.pro` для браузера один сайт, и кука уходит со страницы чужого роутера. Прочитать
+/// этот ответ такая страница не может: CORS не разрешает ответы на запросы с кукой.
+pub async fn get_ws_ticket() -> impl IntoResponse {
+    let ticket = Uuid::new_v4().to_string();
+    let mut tickets = TICKETS.lock().unwrap();
+    drop_expired(&mut tickets);
+    tickets.insert(ticket.clone(), Instant::now());
+    Json(serde_json::json!({ "success": true, "ticket": ticket }))
+}
+
+fn take_ticket(ticket: &str) -> bool {
+    let mut tickets = TICKETS.lock().unwrap();
+    drop_expired(&mut tickets);
+    tickets.remove(ticket).is_some()
+}
+
+/// WebSocket не подчиняется CORS. Запрос без `Origin` пропускаем: так его присылает прокси роутера.
 fn is_same_origin(headers: &HeaderMap) -> bool {
     let Some(origin) = headers.get(header::ORIGIN) else {
         return true;
@@ -30,8 +56,10 @@ fn is_same_origin(headers: &HeaderMap) -> bool {
     })
 }
 
-pub async fn ws_handler(ws: WebSocketUpgrade, headers: HeaderMap, State(state): State<AppState>) -> impl IntoResponse {
-    if !is_same_origin(&headers) {
+pub async fn ws_handler(
+    ws: WebSocketUpgrade, headers: HeaderMap, Query(params): Query<HashMap<String, String>>, State(state): State<AppState>,
+) -> impl IntoResponse {
+    if !is_same_origin(&headers) || !params.get("ticket").is_some_and(|t| take_ticket(t)) {
         return StatusCode::FORBIDDEN.into_response();
     }
     ws.on_upgrade(|socket| handle_socket(socket, state))
@@ -259,6 +287,18 @@ mod tests {
             .iter()
             .map(|(k, v)| (axum::http::HeaderName::from_static(k), HeaderValue::from_static(v)))
             .collect()
+    }
+
+    #[test]
+    fn ticket_works_once_and_expires() {
+        let mut tickets = TICKETS.lock().unwrap();
+        tickets.insert("fresh".into(), Instant::now());
+        tickets.insert("old".into(), Instant::now() - TICKET_TTL);
+        drop(tickets);
+        assert!(!take_ticket("old"));
+        assert!(!take_ticket("unknown"));
+        assert!(take_ticket("fresh"));
+        assert!(!take_ticket("fresh"));
     }
 
     #[test]

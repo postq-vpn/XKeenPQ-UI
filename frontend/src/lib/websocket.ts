@@ -15,14 +15,30 @@ export function useWebSocket(onMessage: WsMessageHandler) {
   const currentFileRef = useRef('error.log')
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const connectRef = useRef<() => void>(() => {})
+  /** Последняя попытка подключения: пока ждали билет, могла начаться новая или компонент исчез. */
+  const attemptRef = useRef(0)
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.close()
     }
     if (pingIntervalRef.current) clearInterval(pingIntervalRef.current)
 
-    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?file=${currentFileRef.current}`)
+    const attempt = ++attemptRef.current
+    let ticket: string
+    try {
+      const res = await fetch('/api/ws-ticket', { cache: 'no-store' })
+      if (!res.ok) throw new Error(String(res.status))
+      ticket = (await res.json()).ticket
+    } catch (e) {
+      console.warn('WebSocket ticket request failed. Retrying...', e)
+      if (attempt === attemptRef.current) reconnectTimeoutRef.current = setTimeout(() => connectRef.current(), 1000)
+      return
+    }
+    if (attempt !== attemptRef.current) return
+
+    const params = new URLSearchParams({ file: currentFileRef.current, ticket })
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?${params}`)
     wsRef.current = ws
 
     ws.onopen = () => {
@@ -53,12 +69,13 @@ export function useWebSocket(onMessage: WsMessageHandler) {
   }, [onMessage])
 
   useEffect(() => {
-    connectRef.current = connect
+    connectRef.current = () => void connect()
   }, [connect])
 
   useEffect(() => {
-    connect()
+    void connect()
     return () => {
+      attemptRef.current++
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current)
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
       wsRef.current?.close()
