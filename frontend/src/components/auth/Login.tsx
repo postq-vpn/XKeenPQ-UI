@@ -13,6 +13,25 @@ interface LoginFormProps {
   onAuth: () => void
 }
 
+const MIN_PASSWORD_LENGTH = 8
+
+/** Панель открыта не из локальной сети, а пароль не включён: задать его можно только из локальной сети. */
+export function RemoteBlocked() {
+  return (
+    <div className="bg-muted dark:bg-background flex min-h-dvh items-center justify-center p-4">
+      <div className="bg-card ring-foreground/10 mx-auto w-full max-w-md space-y-3 rounded-2xl border p-6 shadow-lg">
+        <h1>
+          <BrandLogo className="text-[28px]" />
+        </h1>
+        <p className="text-muted-foreground text-sm text-pretty">
+          Без пароля панель доступна только из локальной сети. Откройте её по адресу роутера, например http://192.168.1.1:1000, и
+          включите авторизацию в настройках.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 export function LoginForm({ mode, onAuth }: LoginFormProps) {
   const [password, setPassword] = useState('')
   const [visible, setVisible] = useState(false)
@@ -69,7 +88,8 @@ export function LoginForm({ mode, onAuth }: LoginFormProps) {
                 </InputGroupAddon>
                 <InputGroupInput
                   id="password"
-                  placeholder="Введите пароль..."
+                  placeholder={mode === 'setup' ? `Не менее ${MIN_PASSWORD_LENGTH} символов` : 'Введите пароль...'}
+                  minLength={mode === 'setup' ? MIN_PASSWORD_LENGTH : undefined}
                   type={visible ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => {

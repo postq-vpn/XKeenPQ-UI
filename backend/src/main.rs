@@ -34,6 +34,7 @@ use std::process::exit;
 use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
+use tower_http::set_header::SetResponseHeaderLayer;
 
 const STYLES: Styles = Styles::styled()
     .header(AnsiColor::Yellow.on_default().bold())
@@ -556,6 +557,22 @@ async fn main() {
         .merge(insecure_api)
         .fallback(frontend_embedder::serve)
         .layer(CorsLayer::permissive())
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::CONTENT_SECURITY_POLICY,
+            axum::http::HeaderValue::from_static("frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::X_FRAME_OPTIONS,
+            axum::http::HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::X_CONTENT_TYPE_OPTIONS,
+            axum::http::HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::REFERRER_POLICY,
+            axum::http::HeaderValue::from_static("no-referrer"),
+        ))
         .with_state(state);
     let addr: SocketAddr = format!("0.0.0.0:{}", cli.port)
         .parse()

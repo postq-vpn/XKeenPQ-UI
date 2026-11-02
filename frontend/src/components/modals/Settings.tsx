@@ -2,6 +2,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
 import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -315,13 +316,18 @@ function AuthSettingsField({
   showToast: (msg: string, type?: 'success' | 'error') => void
 }) {
   const [resetOpen, setResetOpen] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
 
   const resetPassword = useCallback(async () => {
-    const res = await fetch('/api/auth/reset', { method: 'POST' })
+    const res = await fetch('/api/auth/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: currentPassword }),
+    })
     const data = await res.json()
     if (data.success) window.location.reload()
     else showToast(data.error ?? 'Ошибка', 'error')
-  }, [showToast])
+  }, [currentPassword, showToast])
 
   return (
     <FieldGroup className="gap-0!">
@@ -351,13 +357,20 @@ function AuthSettingsField({
               />
               <PopoverContent>
                 <PopoverHeader>
-                  <PopoverTitle>Вас перекинет на страницу установки пароля. Продолжить?</PopoverTitle>
+                  <PopoverTitle>Введите текущий пароль. Новый пароль можно задать только из локальной сети</PopoverTitle>
                 </PopoverHeader>
+                <Input
+                  type="password"
+                  placeholder="Текущий пароль"
+                  aria-label="Текущий пароль"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                />
                 <div className="flex justify-end gap-2">
                   <Button size="sm" variant="outline" onClick={() => setResetOpen(false)}>
                     Нет
                   </Button>
-                  <Button size="sm" variant="destructive" onClick={() => void resetPassword()}>
+                  <Button size="sm" variant="destructive" disabled={!currentPassword} onClick={() => void resetPassword()}>
                     Да
                   </Button>
                 </div>

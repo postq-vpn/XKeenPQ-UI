@@ -2,6 +2,7 @@ use crate::logger::{process_log_line, ts};
 use crate::types::*;
 use axum::extract::State;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::IntoResponse;
 use futures_util::sink::SinkExt;
 use futures_util::stream::StreamExt;
@@ -13,7 +14,26 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 static WS_COUNTER: AtomicU32 = AtomicU32::new(0);
 
-pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+/// WebSocket не подчиняется CORS, а `SameSite` не отделяет соседние домены `*.netcraze.pro`, у них
+/// общий сайт: браузер открыл бы журнал со страницы чужого роутера. Без `Origin` это не браузер.
+fn is_same_origin(headers: &HeaderMap) -> bool {
+    let Some(origin) = headers.get(header::ORIGIN) else {
+        return true;
+    };
+    let origin = origin.to_str().unwrap_or("");
+    let origin = crate::auth::host_name(origin.split_once("://").map_or("", |(_, rest)| rest));
+    ["x-forwarded-host", "host"].iter().any(|name| {
+        headers
+            .get(*name)
+            .and_then(|h| h.to_str().ok())
+            .is_some_and(|host| !origin.is_empty() && crate::auth::host_name(host).eq_ignore_ascii_case(origin))
+    })
+}
+
+pub async fn ws_handler(ws: WebSocketUpgrade, headers: HeaderMap, State(state): State<AppState>) -> impl IntoResponse {
+    if !is_same_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
     ws.on_upgrade(|socket| handle_socket(socket, state))
 }
 
@@ -226,5 +246,33 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         if let Some(abort_handle) = state.log_watcher.lock().await.take() {
             abort_handle.abort();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
+        pairs
+            .iter()
+            .map(|(k, v)| (axum::http::HeaderName::from_static(k), HeaderValue::from_static(v)))
+            .collect()
+    }
+
+    #[test]
+    fn origin_must_match_host() {
+        assert!(is_same_origin(&headers(&[("host", "192.168.1.1:1000")])));
+        assert!(is_same_origin(&headers(&[("host", "192.168.1.1:1000"), ("origin", "http://192.168.1.1:1000")])));
+        assert!(is_same_origin(&headers(&[("host", "a.netcraze.pro"), ("origin", "https://A.netcraze.pro")])));
+        assert!(is_same_origin(&headers(&[
+            ("host", "127.0.0.1:1000"),
+            ("x-forwarded-host", "a.netcraze.pro"),
+            ("origin", "https://a.netcraze.pro")
+        ])));
+        assert!(!is_same_origin(&headers(&[("host", "a.netcraze.pro"), ("origin", "https://b.netcraze.pro")])));
+        assert!(!is_same_origin(&headers(&[("host", "a.netcraze.pro"), ("origin", "null")])));
+        assert!(!is_same_origin(&headers(&[("origin", "https://a.netcraze.pro")])));
     }
 }

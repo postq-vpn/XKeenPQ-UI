@@ -1,6 +1,12 @@
 use crate::types::*;
-use axum::extract::State;
+use axum::extract::{ConnectInfo, State};
+use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Json};
+use std::net::SocketAddr;
+
+/// Что клиент может менять через API. Пути конфигов и данные пароля меняются только на самом
+/// роутере: с ними сессия панели давала бы запись в любой файл и вход без пароля.
+const PATCHABLE_SECTIONS: [&str; 5] = ["gui", "updater", "log", "auth", "plugins"];
 
 pub async fn get_settings(State(state): State<AppState>) -> impl IntoResponse {
     let s = state.settings.read().unwrap();
@@ -9,7 +15,32 @@ pub async fn get_settings(State(state): State<AppState>) -> impl IntoResponse {
     )
 }
 
-pub async fn patch_settings(State(state): State<AppState>, Json(patch): Json<serde_json::Value>) -> impl IntoResponse {
+/// Ошибка, если изменение настроек не разрешено.
+fn check_patch(patch: &serde_json::Value, local: bool) -> Result<(), &'static str> {
+    let sections = patch.as_object().ok_or("Ожидался объект")?;
+    if sections.keys().any(|k| !PATCHABLE_SECTIONS.contains(&k.as_str())) {
+        return Err("Эти настройки нельзя менять через панель");
+    }
+    let Some(auth) = sections.get("auth") else {
+        return Ok(());
+    };
+    let auth = auth.as_object().ok_or("Ожидался объект")?;
+    if auth.keys().any(|k| k != "enabled") {
+        return Err("Эти настройки нельзя менять через панель");
+    }
+    if !local {
+        return Err("Авторизацию можно менять только из локальной сети");
+    }
+    Ok(())
+}
+
+pub async fn patch_settings(
+    State(state): State<AppState>, ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap,
+    Json(patch): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    if let Err(e) = check_patch(&patch, crate::auth::is_local_request(&headers, addr)) {
+        return Json(serde_json::json!({"success": false, "error": e}));
+    }
     let _guard = state.app_config_lock.lock().await;
     let mut file_json = match read_config(APP_CONFIG).await {
         Ok(json) => json,
@@ -168,6 +199,19 @@ pub async fn reload(state: &AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn patch_cannot_touch_secrets_or_paths() {
+        let check = |v: serde_json::Value, local| check_patch(&v, local);
+        assert!(check(serde_json::json!({"gui": {"x": 1}, "plugins": {"multi_router": true}}), false).is_ok());
+        assert!(check(serde_json::json!({"auth": {"enabled": true}}), true).is_ok());
+        assert!(check(serde_json::json!({"auth": {"enabled": false}}), false).is_err());
+        assert!(check(serde_json::json!({"auth": {"password_hash": "x"}}), true).is_err());
+        assert!(check(serde_json::json!({"auth": {"session_ids": ["x"]}}), true).is_err());
+        assert!(check(serde_json::json!({"auth": null}), true).is_err());
+        assert!(check(serde_json::json!({"append_config_paths": {"xray": ["/opt/etc"]}}), true).is_err());
+        assert!(check(serde_json::json!([]), true).is_err());
+    }
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("xkeen-ui-settings-{name}-{}", std::process::id()));

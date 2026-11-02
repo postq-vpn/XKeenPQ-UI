@@ -6,9 +6,10 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::sync::{LazyLock, Mutex};
+use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 use crate::types::{APP_CONFIG, ApiResponse, AppState};
@@ -16,8 +17,17 @@ use crate::types::{APP_CONFIG, ApiResponse, AppState};
 const SESSION_COOKIE: &str = "session_id";
 const MAX_ATTEMPTS: u32 = 5;
 const LOCKOUT_SECS: u64 = 60;
+const MIN_PASSWORD_CHARS: usize = 8;
+const MAX_PASSWORD_CHARS: usize = 256;
+/// Все запросы извне делят один счётчик попыток: адрес клиента за прокси ненадёжен.
+const EXTERNAL_KEY: &str = "external";
+/// Одна проверка пароля занимает около 19 МБ памяти.
+const MAX_PASSWORD_JOBS: usize = 2;
+/// Адреса роутера в его локальной сети.
+const ROUTER_LAN_NAMES: [&str; 2] = ["my.keenetic.net", "my.netcraze.net"];
 
 static BRUTE_CACHE: LazyLock<Mutex<HashMap<String, (u32, Instant)>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static PASSWORD_JOBS: LazyLock<Arc<Semaphore>> = LazyLock::new(|| Arc::new(Semaphore::new(MAX_PASSWORD_JOBS)));
 
 #[derive(Deserialize)]
 pub struct PasswordReq {
@@ -30,6 +40,7 @@ fn now_ts() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
 }
 
+/// Адрес клиента только для журнала: заголовки может подделать сам клиент.
 fn get_client_ip(headers: &HeaderMap, addr: SocketAddr) -> String {
     headers
         .get("x-real-ip")
@@ -38,6 +49,121 @@ fn get_client_ip(headers: &HeaderMap, addr: SocketAddr) -> String {
         .map(|s| s.split(',').next().unwrap_or("").trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| addr.ip().to_string())
+}
+
+fn is_private_ip(ip: IpAddr) -> bool {
+    match ip.to_canonical() {
+        IpAddr::V4(ip) => ip.is_private() || ip.is_link_local(),
+        IpAddr::V6(ip) => (ip.segments()[0] & 0xfe00) == 0xfc00 || (ip.segments()[0] & 0xffc0) == 0xfe80,
+    }
+}
+
+/// Имя из заголовка `Host` без порта и скобок IPv6.
+pub fn host_name(host: &str) -> &str {
+    if let Some(rest) = host.strip_prefix('[') {
+        return rest.split(']').next().unwrap_or("");
+    }
+    host.split(':').next().unwrap_or("")
+}
+
+fn is_local_host(host: &str) -> bool {
+    let name = host_name(host).to_ascii_lowercase();
+    if name.is_empty() {
+        return false;
+    }
+    if let Ok(ip) = name.parse::<IpAddr>() {
+        return is_private_ip(ip);
+    }
+    !name.contains('.') || name.ends_with(".local") || ROUTER_LAN_NAMES.contains(&name.as_str())
+}
+
+/// Запрос из локальной сети: с частного адреса, без следов прокси и по локальному имени.
+/// Прокси роутера (CrazeDNS, KeenDNS) подключается к панели с адреса самого роутера, поэтому
+/// loopback локальным не считается. Что-то не сходится — запрос внешний.
+pub fn is_local_request(headers: &HeaderMap, addr: SocketAddr) -> bool {
+    const PROXY_HEADERS: [&str; 6] = [
+        "forwarded",
+        "via",
+        "x-forwarded-for",
+        "x-forwarded-host",
+        "x-forwarded-proto",
+        "x-real-ip",
+    ];
+    is_private_ip(addr.ip())
+        && !PROXY_HEADERS.iter().any(|h| headers.contains_key(*h))
+        && headers
+            .get(header::HOST)
+            .and_then(|h| h.to_str().ok())
+            .is_some_and(is_local_host)
+}
+
+fn error_response(status: StatusCode, error: impl Into<String>) -> Response {
+    (
+        status,
+        Json(ApiResponse::<()> {
+            success: false,
+            error: Some(error.into()),
+            data: None,
+        }),
+    )
+        .into_response()
+}
+
+/// Запускает проверку или расчёт хеша пароля; `None` — уже заняты все слоты. Слот держит сама
+/// задача: если клиент оборвал соединение, она всё равно занимает память, пока не закончит.
+async fn password_job<T: Send + 'static>(job: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    let slot = PASSWORD_JOBS.clone().try_acquire_owned().ok()?;
+    tokio::task::spawn_blocking(move || {
+        let _slot = slot;
+        job()
+    })
+    .await
+    .ok()
+}
+
+/// Проверяет пароль с учётом лимита попыток; ответ — отказ клиенту. Попытка засчитывается
+/// до проверки, иначе параллельные запросы обошли бы лимит.
+async fn password_rejection(state: &AppState, headers: &HeaderMap, addr: SocketAddr, password: String) -> Option<Response> {
+    let log_ip = get_client_ip(headers, addr);
+    let key = if is_local_request(headers, addr) { addr.ip().to_string() } else { EXTERNAL_KEY.to_string() };
+    let hash = state.settings.read().unwrap().auth.password_hash.clone();
+    let Some(hash) = hash else {
+        return Some(error_response(StatusCode::FORBIDDEN, "No password set"));
+    };
+    let attempt = {
+        let mut cache = BRUTE_CACHE.lock().unwrap();
+        cache.retain(|_, (_, t)| t.elapsed() < Duration::from_secs(LOCKOUT_SECS * 2));
+        let entry = cache.entry(key.clone()).or_insert((0, Instant::now()));
+        if entry.1.elapsed() > Duration::from_secs(LOCKOUT_SECS) {
+            entry.0 = 0;
+        }
+        if entry.0 >= MAX_ATTEMPTS {
+            println!("{} [WARN] Authorization blocked [{}]", crate::logger::ts(), log_ip);
+            return Some(error_response(
+                StatusCode::TOO_MANY_REQUESTS,
+                format!("Слишком много попыток. Повторите через {} секунд", LOCKOUT_SECS),
+            ));
+        }
+        entry.0 += 1;
+        entry.1 = Instant::now();
+        entry.0
+    };
+
+    let Some(is_valid) = password_job(move || verify_password(&password, &hash)).await else {
+        return Some(error_response(StatusCode::TOO_MANY_REQUESTS, "Панель занята проверкой пароля. Повторите позже"));
+    };
+    if !is_valid {
+        println!(
+            "{} [WARN] Incorrect password attempt [{}] ({}/{})",
+            crate::logger::ts(),
+            log_ip,
+            attempt,
+            MAX_ATTEMPTS
+        );
+        return Some(error_response(StatusCode::UNAUTHORIZED, "Неверный пароль"));
+    }
+    BRUTE_CACHE.lock().unwrap().remove(&key);
+    None
 }
 
 fn get_session_cookie(headers: &HeaderMap) -> Option<&str> {
@@ -94,36 +220,42 @@ fn clear_cookie_header() -> HeaderMap {
     headers
 }
 
-pub async fn get_login_info(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+pub async fn get_login_info(
+    State(state): State<AppState>, ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap,
+) -> impl IntoResponse {
     let s = state.settings.read().unwrap();
     let authenticated =
         get_session_cookie(&headers).is_some_and(|cookie| is_session_valid(&s.auth.session_ids, cookie));
     Json(serde_json::json!({
         "enabled": s.auth.enabled,
         "has_password": s.auth.password_hash.is_some(),
-        "authenticated": authenticated
+        "authenticated": authenticated,
+        "local": is_local_request(&headers, addr)
     }))
 }
 
 pub async fn post_setup(
-    State(state): State<AppState>, headers: HeaderMap, Json(req): Json<PasswordReq>,
-) -> impl IntoResponse {
+    State(state): State<AppState>, ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap,
+    Json(req): Json<PasswordReq>,
+) -> Response {
+    if !is_local_request(&headers, addr) {
+        return error_response(StatusCode::FORBIDDEN, "Пароль можно задать только из локальной сети");
+    }
     if state.settings.read().unwrap().auth.password_hash.is_some() {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(ApiResponse::<()> {
-                success: false,
-                error: Some("Password already set".into()),
-                data: None,
-            }),
-        )
-            .into_response();
+        return error_response(StatusCode::FORBIDDEN, "Password already set");
+    }
+    let chars = req.password.chars().count();
+    if !(MIN_PASSWORD_CHARS..=MAX_PASSWORD_CHARS).contains(&chars) {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            format!("Длина пароля: от {MIN_PASSWORD_CHARS} до {MAX_PASSWORD_CHARS} символов"),
+        );
     }
 
     let password = req.password;
-    let hash = tokio::task::spawn_blocking(move || hash_password(&password))
-        .await
-        .unwrap();
+    let Some(hash) = password_job(move || hash_password(&password)).await else {
+        return error_response(StatusCode::TOO_MANY_REQUESTS, "Панель занята проверкой пароля. Повторите позже");
+    };
     let session_id = Uuid::new_v4().to_string();
     let ttl = 86400;
     let session_val = format!("{}:{}", session_id, now_ts() + ttl);
@@ -150,74 +282,9 @@ pub async fn post_login(
     Json(req): Json<PasswordReq>,
 ) -> Response {
     let ip = get_client_ip(&headers, addr);
-    {
-        let mut cache = BRUTE_CACHE.lock().unwrap();
-        cache.retain(|_, (_, t)| t.elapsed() < Duration::from_secs(LOCKOUT_SECS * 2));
-        let entry = cache.entry(ip.clone()).or_insert((0, Instant::now()));
-        if entry.1.elapsed() > Duration::from_secs(LOCKOUT_SECS) {
-            entry.0 = 0;
-        }
-        if entry.0 >= MAX_ATTEMPTS {
-            println!("{} [WARN] Authorization blocked [{}]", crate::logger::ts(), ip);
-            return (
-                StatusCode::TOO_MANY_REQUESTS,
-                Json(ApiResponse::<()> {
-                    success: false,
-                    error: Some(format!(
-                        "Слишком много попыток. Повторите через {} секунд",
-                        LOCKOUT_SECS
-                    )),
-                    data: None,
-                }),
-            )
-                .into_response();
-        }
+    if let Some(response) = password_rejection(&state, &headers, addr, req.password).await {
+        return response;
     }
-
-    let hash = match state.settings.read().unwrap().auth.password_hash.clone() {
-        Some(h) => h,
-        None => {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(ApiResponse::<()> {
-                    success: false,
-                    error: Some("No password set".into()),
-                    data: None,
-                }),
-            )
-                .into_response();
-        }
-    };
-
-    let password = req.password;
-    let is_valid = tokio::task::spawn_blocking(move || verify_password(&password, &hash))
-        .await
-        .unwrap_or(false);
-
-    if !is_valid {
-        let mut cache = BRUTE_CACHE.lock().unwrap();
-        let entry = cache.entry(ip.clone()).or_insert((0, Instant::now()));
-        entry.0 += 1;
-        entry.1 = Instant::now();
-        println!(
-            "{} [WARN] Incorrect password attempt [{}] ({}/{})",
-            crate::logger::ts(),
-            ip,
-            entry.0,
-            MAX_ATTEMPTS
-        );
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(ApiResponse::<()> {
-                success: false,
-                error: Some("Неверный пароль".into()),
-                data: None,
-            }),
-        )
-            .into_response();
-    }
-
-    BRUTE_CACHE.lock().unwrap().remove(&ip);
     println!("{} [INFO] Successful auth {}", crate::logger::ts(), ip);
 
     let max_age = if req.remember { 2592000 } else { 0 };
@@ -260,7 +327,23 @@ pub async fn post_logout(State(state): State<AppState>, headers: HeaderMap) -> i
     )
 }
 
-pub async fn post_auth_reset(State(state): State<AppState>) -> impl IntoResponse {
+#[derive(Deserialize)]
+pub struct ResetReq {
+    password: String,
+}
+
+/// Новый пароль задаётся только из локальной сети, поэтому и сбросить его можно только оттуда:
+/// чужая сессия не должна отрезать владельца от панели.
+pub async fn post_auth_reset(
+    State(state): State<AppState>, ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap,
+    Json(req): Json<ResetReq>,
+) -> Response {
+    if !is_local_request(&headers, addr) {
+        return error_response(StatusCode::FORBIDDEN, "Сбросить пароль можно только из локальной сети");
+    }
+    if let Some(response) = password_rejection(&state, &headers, addr, req.password).await {
+        return response;
+    }
     update_auth(&state, |auth| {
         auth.password_hash = None;
         auth.session_ids.clear();
@@ -274,12 +357,22 @@ pub async fn post_auth_reset(State(state): State<AppState>) -> impl IntoResponse
             data: None,
         }),
     )
+        .into_response()
 }
 
 pub async fn auth_middleware(state: AppState, request: Request, next: Next) -> Response {
     let enabled = state.settings.read().unwrap().auth.enabled;
     if !enabled {
-        return next.run(request).await;
+        // Без пароля панель открыта только локальной сети.
+        let local = request
+            .extensions()
+            .get::<ConnectInfo<SocketAddr>>()
+            .is_some_and(|c| is_local_request(request.headers(), c.0));
+        return if local {
+            next.run(request).await
+        } else {
+            error_response(StatusCode::FORBIDDEN, "Без пароля панель доступна только из локальной сети")
+        };
     }
     let session_ids = state.settings.read().unwrap().auth.session_ids.clone();
     if session_ids.is_empty() {
@@ -336,5 +429,65 @@ async fn save_auth_to_config(state: &AppState) {
     let tmp = format!("{}.tmp", APP_CONFIG);
     if crate::private_file::write(&tmp, &serialized).await.is_ok() {
         let _ = tokio::fs::rename(&tmp, APP_CONFIG).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request(host: &str, extra: &[(&str, &str)]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, HeaderValue::from_str(host).unwrap());
+        for (k, v) in extra {
+            headers.insert(axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(), HeaderValue::from_str(v).unwrap());
+        }
+        headers
+    }
+
+    fn peer(ip: &str) -> SocketAddr {
+        SocketAddr::new(ip.parse().unwrap(), 50000)
+    }
+
+    #[test]
+    fn lan_requests_are_local() {
+        for host in ["192.168.1.1:1000", "my.netcraze.net:1000", "router:1000", "router.local", "[fd00::1]:1000"] {
+            assert!(is_local_request(&request(host, &[]), peer("192.168.1.84")), "{host}");
+        }
+        assert!(is_local_request(&request("10.0.0.1:1000", &[]), peer("10.8.0.2")));
+        assert!(is_local_request(&request("[fd00::1]:1000", &[]), peer("fd00::2")));
+    }
+
+    #[test]
+    fn everything_else_is_external() {
+        let lan = peer("192.168.1.84");
+        // прокси роутера подключается с него самого
+        assert!(!is_local_request(&request("127.0.0.1:1000", &[]), peer("127.0.0.1")));
+        assert!(!is_local_request(&request("192.168.1.1:1000", &[]), peer("::1")));
+        // проброс порта
+        assert!(!is_local_request(&request("192.168.1.1:1000", &[]), peer("8.8.8.8")));
+        assert!(!is_local_request(&request("192.168.1.1:1000", &[]), peer("100.64.0.1")));
+        // имя из интернета, в том числе DNS rebinding
+        assert!(!is_local_request(&request("kiloo.netcraze.pro", &[]), lan));
+        assert!(!is_local_request(&request("8.8.8.8:1000", &[]), lan));
+        assert!(!is_local_request(&request("", &[]), lan));
+        assert!(!is_local_request(&HeaderMap::new(), lan));
+        // следы прокси
+        for h in ["forwarded", "via", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip"] {
+            assert!(!is_local_request(&request("192.168.1.1:1000", &[(h, "1.2.3.4")]), lan), "{h}");
+        }
+    }
+
+    #[test]
+    fn mapped_ipv4_peer_is_recognised() {
+        assert!(is_private_ip("::ffff:192.168.1.84".parse().unwrap()));
+        assert!(!is_private_ip("::ffff:8.8.8.8".parse().unwrap()));
+    }
+
+    #[test]
+    fn host_name_drops_port_and_brackets() {
+        assert_eq!(host_name("a.b:443"), "a.b");
+        assert_eq!(host_name("a.b"), "a.b");
+        assert_eq!(host_name("[fd00::1]:1000"), "fd00::1");
     }
 }

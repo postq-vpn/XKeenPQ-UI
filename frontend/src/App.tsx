@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
-import { LoginForm } from './components/auth/Login'
+import { LoginForm, RemoteBlocked } from './components/auth/Login'
 import type { CodeMirrorRef } from './components/configuration/CodeMirror'
 import { ConfigPanel, isPanelManagedFile } from './components/configuration/ConfigPanel'
 
@@ -505,7 +505,7 @@ type View = 'servers' | 'files' | 'log'
 
 const VERSION_POLL_MS = 5 * 60 * 1000
 
-type AuthState = 'loading' | 'login' | 'setup' | 'authenticated'
+type AuthState = 'loading' | 'login' | 'setup' | 'remote-blocked' | 'authenticated'
 
 export default function App() {
   const [authState, setAuthState] = useState<AuthState>('loading')
@@ -517,9 +517,10 @@ export default function App() {
     fetch('/api/auth/login')
       .then((r) => r.json())
       .then((data) => {
-        if (!data.enabled || data.authenticated) setAuthState('authenticated')
-        else if (!data.has_password) setAuthState('setup')
-        else setAuthState('login')
+        if (data.authenticated || (!data.enabled && data.local)) setAuthState('authenticated')
+        else if (!data.enabled) setAuthState('remote-blocked')
+        else if (data.has_password) setAuthState('login')
+        else setAuthState(data.local ? 'setup' : 'remote-blocked')
       })
       .catch(() => setAuthState('login'))
   }, [])
@@ -533,7 +534,11 @@ export default function App() {
 
   return (
     <AnimatePresence mode="wait">
-      {authState === 'login' || authState === 'setup' ? (
+      {authState === 'remote-blocked' ? (
+        <motion.div key="blocked" initial={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
+          <RemoteBlocked />
+        </motion.div>
+      ) : authState === 'login' || authState === 'setup' ? (
         <motion.div key="login" initial={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
           <LoginForm mode={authState} onAuth={() => setAuthState('authenticated')} />
           <Toast />
