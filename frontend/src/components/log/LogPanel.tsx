@@ -320,7 +320,7 @@ export function LogPanel({ asPage, headerExtra }: LogPanelProps = {}) {
 
   return (
     <TooltipProvider delayDuration={500}>
-      <div className={cn('relative w-full', asPage ? 'h-[70dvh] flex-1' : 'h-70 pb-3 md:shrink-0')}>
+      <div className={cn('relative w-full', asPage ? 'min-h-[70dvh] flex-1' : 'h-70 pb-3 md:shrink-0')}>
         <div
           ref={backdropRef}
           className="fixed inset-0 z-40 bg-black/50 opacity-0"
