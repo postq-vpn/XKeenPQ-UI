@@ -6,6 +6,7 @@ mod frontend_embedder;
 mod geo;
 mod geoipset;
 mod logger;
+mod policy;
 mod private_file;
 mod route_test;
 mod settings;
@@ -489,7 +490,8 @@ async fn main() {
             "/api/control",
             get(controller::get_control).post(controller::post_control),
         )
-        .route("/api/policy-status", get(controller::get_policy_status))
+        .route("/api/policy-status", get(policy::get_policy_status))
+        .route("/api/policy", post(policy::post_policy))
         .route(
             "/api/configs",
             get(configs::get_configs)

@@ -127,6 +127,8 @@ pub struct GuiSettings {
     pub routing: bool,
     pub log: bool,
     pub auto_apply: bool,
+    /// Пользователь отказался от политики xkeen: панель не предлагает её создать.
+    pub hide_policy_hint: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

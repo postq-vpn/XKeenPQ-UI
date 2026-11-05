@@ -12,8 +12,6 @@ use tokio::fs;
 use tokio::process::Command;
 
 const CORE_NAME: &str = "xray";
-const XKEEN_POLICY: &str = "xkeen";
-const XKEEN_PROXY_SCRIPT: &str = "/opt/etc/ndm/netfilter.d/proxy.sh";
 
 #[derive(Deserialize)]
 pub struct ControlReq {
@@ -204,49 +202,13 @@ async fn check_core_config() -> Result<(), String> {
     Ok(())
 }
 
-/// Метка политики, с которой запущен XKeen (строка `policy_mark='…'` его скрипта файрвола).
-/// Пустая строка — запущен без политики, `None` — скрипта или строки нет.
-fn applied_policy_mark(script: &str) -> Option<&str> {
-    script.lines().find_map(|line| line.strip_prefix("policy_mark='")?.strip_suffix('\''))
-}
-
-/// Текущая метка политики XKeen в роутере: ищется по описанию, как в самом XKeen.
-fn router_policy_mark(policies: &serde_json::Value) -> Option<String> {
-    policies.as_object()?.values().find_map(|policy| {
-        let description = policy.get("description")?.as_str()?;
-        description
-            .eq_ignore_ascii_case(XKEEN_POLICY)
-            .then(|| Some(format!("0x{}", policy.get("mark")?.as_str()?)))?
-    })
-}
-
-/// XKeen читает метку только при запуске: политика, созданная или изменённая позже,
-/// заработает после его перезапуска. Метка из кеша XKeen (политику удалили) перезапуском
-/// не исправляется, поэтому такой случай сюда не входит.
-fn policy_outdated(script: &str, policies: &serde_json::Value) -> bool {
-    match (applied_policy_mark(script), router_policy_mark(policies)) {
-        (Some(applied), Some(current)) => !applied.eq_ignore_ascii_case(&current),
-        _ => false,
+/// Перезапуск XKeen, как кнопка ↻: проверка конфига Xray, затем `restart on`.
+pub async fn restart_xkeen(state: &AppState) -> Result<(), String> {
+    if let Err(e) = check_core_config().await {
+        log("ERROR", e);
+        return Err("Не удалось запустить Xray".into());
     }
-}
-
-/// Нужно ли перезапустить XKeen, чтобы применить политику. Ошибки чтения — не повод для
-/// предупреждения: интерфейс показывает его, только когда уверен в расхождении.
-pub async fn get_policy_status(State(state): State<AppState>) -> impl IntoResponse {
-    let script = fs::read_to_string(XKEEN_PROXY_SCRIPT).await.unwrap_or_default();
-    let mut request = state
-        .http_client
-        .get("http://127.0.0.1:79/rci/show/ip/policy")
-        .timeout(std::time::Duration::from_secs(5));
-    if let Some(token) = state.rci_token.as_ref() {
-        request = request.header("X-Ndma-Tkn", token);
-    }
-    let policies = match request.send().await {
-        Ok(response) if response.status().is_success() => response.json().await.ok(),
-        _ => None,
-    };
-    let outdated = policies.is_some_and(|policies| policy_outdated(&script, &policies));
-    Json(serde_json::json!({ "success": true, "outdated": outdated }))
+    run_init_command(state, &["restart", "on"]).await
 }
 
 pub async fn post_control(State(state): State<AppState>, Json(req): Json<ControlReq>) -> impl IntoResponse {
@@ -304,42 +266,4 @@ pub async fn post_control(State(state): State<AppState>, Json(req): Json<Control
         error: None,
         data: None,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn policies() -> serde_json::Value {
-        json!({
-            "Policy1": { "description": "other", "mark": "aaa" },
-            "Policy0": { "description": "XKeen", "mark": "ffffaaa" },
-        })
-    }
-
-    #[test]
-    fn policy_created_after_start_is_outdated() {
-        assert!(policy_outdated("mode_proxy='Hybrid'\npolicy_mark=''\n", &policies()));
-    }
-
-    #[test]
-    fn changed_mark_is_outdated() {
-        assert!(policy_outdated("policy_mark='0xbbb'\n", &policies()));
-    }
-
-    #[test]
-    fn applied_mark_is_not_outdated() {
-        assert!(!policy_outdated("policy_mark='0xFFFFAAA'\n", &policies()));
-    }
-
-    #[test]
-    fn nothing_to_compare_is_not_outdated() {
-        let no_policy = json!({ "Policy1": { "description": "other", "mark": "aaa" } });
-        assert!(!policy_outdated("policy_mark=''\n", &no_policy));
-        assert!(!policy_outdated("policy_mark='0xffffaaa'\n", &no_policy));
-        assert!(!policy_outdated("", &policies()));
-        assert!(!policy_outdated("policy_mark_full=''\n", &policies()));
-        assert!(!policy_outdated("policy_mark=''\n", &json!({ "Policy0": { "description": "xkeen" } })));
-    }
 }
