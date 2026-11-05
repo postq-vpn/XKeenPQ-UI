@@ -15,6 +15,7 @@ import { SettingsModal } from './components/modals/Settings'
 import { TemplateModal } from './components/modals/Templates'
 import { UpdateModal } from './components/modals/Update'
 import { XraySubscriptionsModal } from './components/modals/XraySubscriptions'
+import { PolicyWarning } from './components/status/PolicyWarning'
 import { RoutingWarning } from './components/status/RoutingWarning'
 import { StatusBar } from './components/status/StatusBar'
 import { Toast } from './components/ui/toast'
@@ -457,6 +458,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
             onLogout={logout}
           />
           <RoutingWarning reloadKey={subsReloadKey} />
+          <PolicyWarning onRestarted={() => void checkStatus()} />
           <div className={cn(view !== 'servers' && 'hidden')}>
             <XraySubscriptionsModal
               reloadKey={subsReloadKey}

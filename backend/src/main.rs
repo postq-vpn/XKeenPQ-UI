@@ -489,6 +489,7 @@ async fn main() {
             "/api/control",
             get(controller::get_control).post(controller::post_control),
         )
+        .route("/api/policy-status", get(controller::get_policy_status))
         .route(
             "/api/configs",
             get(configs::get_configs)
