@@ -161,6 +161,7 @@ fn replace_rule_tags(text: &str, tags: &HashSet<String>, target: &str) -> String
 const DEFAULT_ROUTING: &str = include_str!("default_routing.json");
 const DEFAULT_ROUTING_TAG: &str = "subscription_1";
 const DEFAULT_ROUTING_FILE: &str = "05_routing.json";
+const BASE_OUTBOUNDS_FILE: &str = "04_outbounds.json";
 
 /// Шаблон routing по умолчанию с правилами, направленными на `target`.
 pub fn default_routing(target: &str) -> String {
@@ -208,6 +209,58 @@ pub async fn missing_default_routing_requirements() -> Vec<String> {
     missing_requirements(&read_conf_files().await)
 }
 
+/// Содержимое `04_outbounds.json` с недостающими `direct`/`block`. XKeen ставит этот файл с одним
+/// комментарием, а шаблон routing без них не запустится. `None` — ничего не нужно или в файле уже
+/// есть настройки пользователя (их панель не меняет, недостающее покажет предупреждение).
+fn base_outbounds_content(files: &[ConfFile]) -> Option<String> {
+    let tags: HashSet<String> = outbound_tags(files).into_iter().map(|(t, _)| t).collect();
+    let outbounds: Vec<Value> = KEEP_TAGS
+        .iter()
+        .filter(|t| !tags.contains(**t))
+        .map(|&tag| match tag {
+            // Метка 255: XKeen не заворачивает такой трафик обратно в прокси
+            "direct" => json!({ "tag": tag, "protocol": "freedom", "streamSettings": { "sockopt": { "mark": 255 } } }),
+            _ => json!({ "tag": tag, "protocol": "blackhole" }),
+        })
+        .collect();
+    if outbounds.is_empty() {
+        return None;
+    }
+    let existing = files
+        .iter()
+        .find(|f| f.path.file_name().is_some_and(|n| n == BASE_OUTBOUNDS_FILE));
+    if let Some(file) = existing {
+        let is_empty = file
+            .json
+            .as_ref()?
+            .as_object()?
+            .iter()
+            .all(|(key, value)| key == "outbounds" && value.as_array().is_some_and(|list| list.is_empty()));
+        if !is_empty {
+            return None;
+        }
+    }
+    let content = json!({ "outbounds": outbounds });
+    serde_json::to_string_pretty(&content).ok().map(|text| text + "\n")
+}
+
+/// Заполняет `04_outbounds.json` в `dir`, если он пуст. Возвращает true, если файл записан.
+async fn write_base_outbounds(dir: &std::path::Path, files: &[ConfFile]) -> Result<bool, String> {
+    let Some(content) = base_outbounds_content(files) else {
+        return Ok(false);
+    };
+    let path = dir.join(BASE_OUTBOUNDS_FILE);
+    let tmp = path.with_extension("tmp");
+    tokio::fs::write(&tmp, content)
+        .await
+        .map_err(|e| format!("ошибка записи {}: {}", tmp.display(), e))?;
+    tokio::fs::rename(&tmp, &path)
+        .await
+        .map_err(|e| format!("ошибка записи {}: {}", path.display(), e))?;
+    log("INFO", format!("Маршрутизация: добавлены direct и block в {}", path.display()));
+    Ok(true)
+}
+
 /// Ставит routing по умолчанию в `05_routing.json` (прежний файл — в `05_routing.json.bak`),
 /// в том числе поверх шаблона XKeen. Не трогает конфиги, если правила есть в других файлах
 /// (их пользователь настроил сам) или какой-то конфиг не разобрался (в нём могут быть правила).
@@ -232,6 +285,12 @@ pub async fn ensure_default(target: &str) -> Result<DefaultRouting, String> {
         return Ok(DefaultRouting::Kept);
     }
 
+    let conf_dir = std::path::Path::new(XRAY_CONF_DIR);
+    let files = if write_base_outbounds(conf_dir, &files).await? {
+        read_conf_files().await
+    } else {
+        files
+    };
     let missing = missing_requirements(&files);
     if !missing.is_empty() {
         log(
@@ -365,6 +424,77 @@ mod tests {
             json: Some(json!({ "outbounds": [{ "tag": "direct" }, { "tag": "block" }] })),
         };
         assert!(missing_requirements(&[with_outbounds]).iter().all(|m| !m.starts_with("outbound")));
+    }
+
+    /// Файл, который XKeen 2.1 кладёт при установке: только комментарий.
+    const XKEEN_OUTBOUNDS_TEMPLATE: &str =
+        "{\n// Создайте файл по ссылке https://zxc-rv.github.io/XKeen-UI/Outbound_Generator/\n}\n";
+
+    fn test_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("xkeen-ui-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[tokio::test]
+    async fn fills_xkeen_outbounds_template() {
+        let dir = test_dir("base-template");
+        std::fs::write(dir.join(BASE_OUTBOUNDS_FILE), XKEEN_OUTBOUNDS_TEMPLATE).unwrap();
+        let files = read_conf_files_in(&dir).await;
+        assert!(missing_requirements(&files).contains(&"outbound «direct»".to_string()));
+
+        assert!(write_base_outbounds(&dir, &files).await.unwrap());
+
+        let files = read_conf_files_in(&dir).await;
+        let written = read_conf_files_in(&dir).await.remove(0).json.unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(missing_requirements(&files).iter().all(|m| !m.starts_with("outbound")));
+        assert_eq!(
+            written,
+            json!({ "outbounds": [
+                { "tag": "direct", "protocol": "freedom", "streamSettings": { "sockopt": { "mark": 255 } } },
+                { "tag": "block", "protocol": "blackhole" },
+            ] })
+        );
+    }
+
+    #[tokio::test]
+    async fn creates_absent_outbounds_file_with_absent_tags_only() {
+        let dir = test_dir("base-absent");
+        std::fs::write(dir.join("04_custom.json"), r#"{"outbounds":[{"tag":"direct","protocol":"freedom"}]}"#).unwrap();
+        let files = read_conf_files_in(&dir).await;
+
+        assert!(write_base_outbounds(&dir, &files).await.unwrap());
+
+        let written = std::fs::read_to_string(dir.join(BASE_OUTBOUNDS_FILE)).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        let written: Value = serde_json::from_str(&written).unwrap();
+        assert_eq!(written, json!({ "outbounds": [{ "tag": "block", "protocol": "blackhole" }] }));
+    }
+
+    #[tokio::test]
+    async fn keeps_user_outbounds_file() {
+        let dir = test_dir("base-user");
+        let user = "{\n  // свой сервер\n  \"outbounds\": [{ \"tag\": \"vless-reality\", \"protocol\": \"vless\" }]\n}";
+        std::fs::write(dir.join(BASE_OUTBOUNDS_FILE), user).unwrap();
+        let files = read_conf_files_in(&dir).await;
+
+        assert!(!write_base_outbounds(&dir, &files).await.unwrap());
+
+        let after = std::fs::read_to_string(dir.join(BASE_OUTBOUNDS_FILE)).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(after, user);
+        assert!(missing_requirements(&files).contains(&"outbound «direct»".to_string()));
+    }
+
+    #[tokio::test]
+    async fn nothing_to_write_when_tags_exist() {
+        let dir = test_dir("base-complete");
+        std::fs::write(dir.join(BASE_OUTBOUNDS_FILE), r#"{"outbounds":[{"tag":"direct"},{"tag":"block"}]}"#).unwrap();
+        let files = read_conf_files_in(&dir).await;
+        let written = write_base_outbounds(&dir, &files).await.unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(!written);
     }
 
     #[test]
