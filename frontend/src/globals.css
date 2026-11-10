@@ -541,10 +541,13 @@
   background: linear-gradient(135deg, #e01bb4 0%, #a32388 100%);
 }
 
-/* Логотип: в светлой теме знак розовый, надпись тёмная; в тёмной — градиент из атрибута fill. */
-:root:not(.dark) .postq-logo-mark {
+/* Логотип как на postq.space: знак розовый, надпись тёмная в светлой теме и белая в тёмной. */
+.postq-logo-mark {
   fill: #ff2181;
 }
-:root:not(.dark) .postq-logo-text {
+.postq-logo-text {
   fill: #212023;
+}
+.dark .postq-logo-text {
+  fill: #ffffff;
 }
