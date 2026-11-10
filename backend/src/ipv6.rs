@@ -12,7 +12,7 @@
 
 use crate::logger::log;
 use crate::policy::{rci_command, rci_get, with_token};
-use crate::types::{AppState, XKEEN_CONF_DIR};
+use crate::types::{AppState, VERSION, XKEEN_CONF_DIR};
 use axum::extract::State;
 use axum::response::{IntoResponse, Json};
 use serde_json::{Value, json};
@@ -29,6 +29,9 @@ const CHECK_INTERVAL: Duration = Duration::from_secs(2 * 3600);
 /// Роутер не ответил при первом отключении (например, ещё загружается): пробуем снова скоро.
 const RETRY_INTERVAL: Duration = Duration::from_secs(10);
 const RCI_TIMEOUT: Duration = Duration::from_secs(8);
+/// Сразу после загрузки роутера прошивка может ещё не применить настройки, и пустой список блоков
+/// IPv6 значил бы не «выключен», а «не загружен». Решение откладывается до этого времени работы.
+const MIN_UPTIME: Duration = Duration::from_secs(180);
 
 /// Отключение, включение и фоновая проверка не должны идти одновременно.
 static CHANGE_LOCK: Mutex<()> = Mutex::const_new(());
@@ -61,8 +64,36 @@ async fn read_record() -> Option<Value> {
     serde_json::from_str(&text).ok()
 }
 
+/// Запись с пометками: кто и какой версией панели её сделал. Через временный файл и rename:
+/// обрыв питания не оставит повреждённую запись.
 async fn write_record(record: &Value) -> Result<(), String> {
-    tokio::fs::write(state_path(), format!("{record:#}\n")).await.map_err(|e| e.to_string())
+    let mut record = record.clone();
+    record["version"] = json!(VERSION);
+    let path = state_path();
+    let tmp = path.with_extension("json.tmp");
+    crate::private_file::write(&tmp, format!("{record:#}\n")).await.map_err(|e| e.to_string())?;
+    tokio::fs::rename(&tmp, &path).await.map_err(|e| e.to_string())
+}
+
+/// Время работы роутера с загрузки (`/proc/uptime`).
+fn uptime() -> Option<Duration> {
+    let text = std::fs::read_to_string("/proc/uptime").ok()?;
+    parse_uptime(&text)
+}
+
+fn parse_uptime(text: &str) -> Option<Duration> {
+    let seconds: f64 = text.split_whitespace().next()?.parse().ok()?;
+    Some(Duration::from_secs_f64(seconds.max(0.0)))
+}
+
+/// Настройки к сохранению: прежние плюс текущие. Если отключение оборвалось на середине, уже
+/// удалённые блоки остаются в записи, и «Включить» вернёт всё.
+fn merge_subnets(saved: serde_json::Map<String, Value>, current: &Value, names: &[String]) -> serde_json::Map<String, Value> {
+    let mut merged = saved;
+    for name in names {
+        merged.insert(name.clone(), current[name].clone());
+    }
+    merged
 }
 
 /// Настройки, сохранённые при последнем отключении.
@@ -74,20 +105,19 @@ async fn saved_subnets() -> serde_json::Map<String, Value> {
 }
 
 /// Отключает IPv6 в основной сети и запоминает, что было включено, чтобы потом вернуть как было.
-/// `auto` — отключила сама панель при первом запуске: тогда пользователю покажут окно.
+/// `auto` — отключила сама панель при первом запуске: тогда пользователю покажут окно. Пока
+/// отключение не закончено, в записи стоит `pending`: при ошибке следующая попытка продолжит.
 async fn disable(state: &AppState, auto: bool) -> Result<(), String> {
     let subnets = rci_get(state, "ipv6/subnet").await?;
     let names = segment_subnets(&subnets, HOME_SEGMENT);
     if let Some(bad) = names.iter().find(|n| !is_plain_name(n)) {
         return Err(format!("непривычное имя настройки «{bad}»"));
     }
-    // Уже выключен: сохранённые раньше настройки не затираем
-    let saved = if names.is_empty() {
-        saved_subnets().await
-    } else {
-        names.iter().map(|n| (n.clone(), subnets[n].clone())).collect()
-    };
-    write_record(&json!({ "disabled_at": now(), "auto": auto, "segment": HOME_SEGMENT, "subnets": saved })).await?;
+    let saved = merge_subnets(saved_subnets().await, &subnets, &names);
+    let by = if auto { "first-run" } else { "button" };
+    let mut record = json!({ "disabled_at": now(), "auto": auto, "by": by, "segment": HOME_SEGMENT, "subnets": saved });
+    record["pending"] = json!(true);
+    write_record(&record).await?;
     for name in &names {
         rci_command(state, &format!("no ipv6 subnet {name}")).await?;
     }
@@ -97,7 +127,8 @@ async fn disable(state: &AppState, auto: bool) -> Result<(), String> {
     {
         log("ERROR", format!("Не удалось сохранить настройки роутера: {e}"));
     }
-    Ok(())
+    record["pending"] = json!(false);
+    write_record(&record).await
 }
 
 /// Запрос, которым веб-интерфейс роутера создаёт блок `ipv6 subnet`: команда консоли с вложенными
@@ -156,7 +187,7 @@ async fn enable(state: &AppState) -> Result<(), String> {
         log("ERROR", format!("Не удалось сохранить настройки роутера: {e}"));
     }
     // Запись остаётся: первый запуск уже был, панель не отключит IPv6 сама
-    _ = write_record(&json!({ "enabled_at": now(), "segment": HOME_SEGMENT, "subnets": subnets })).await;
+    _ = write_record(&json!({ "enabled_at": now(), "by": "button", "segment": HOME_SEGMENT, "subnets": subnets })).await;
     Ok(())
 }
 
@@ -164,21 +195,31 @@ async fn enable(state: &AppState) -> Result<(), String> {
 /// Если он уже был выключен, это тоже запоминается: дальше панель его сама не трогает.
 async fn first_run(state: &AppState) -> Result<bool, String> {
     let _guard = CHANGE_LOCK.lock().await;
-    if tokio::fs::try_exists(state_path()).await.unwrap_or(false) {
+    let record = read_record().await;
+    let pending = record.as_ref().is_some_and(is_pending);
+    // Решение уже принято; повреждённая запись тоже считается решением, чтобы не трогать IPv6 вслепую
+    if !pending && tokio::fs::try_exists(state_path()).await.unwrap_or(false) {
         return Ok(false);
     }
     let subnets = rci_get(state, "ipv6/subnet").await?;
     if segment_subnets(&subnets, HOME_SEGMENT).is_empty() {
-        write_record(&json!({ "found_off_at": now(), "segment": HOME_SEGMENT, "subnets": {} })).await?;
+        if pending {
+            // Прошлая попытка всё удалила, но не успела отметить это
+            let mut record = record.unwrap_or_default();
+            record["pending"] = json!(false);
+            write_record(&record).await?;
+            return Ok(true);
+        }
+        let uptime_s = uptime().map_or(0, |u| u.as_secs());
+        let record = json!({ "found_off_at": now(), "by": "found-off", "uptime_s": uptime_s, "segment": HOME_SEGMENT, "subnets": {} });
+        write_record(&record).await?;
         return Ok(false);
     }
-    match disable(state, true).await {
-        Ok(()) => Ok(true),
-        Err(e) => {
-            _ = tokio::fs::remove_file(state_path()).await;
-            Err(e)
-        }
-    }
+    disable(state, true).await.map(|()| true)
+}
+
+fn is_pending(record: &Value) -> bool {
+    record.get("pending").and_then(Value::as_bool) == Some(true)
 }
 
 async fn is_enabled(state: &AppState) -> Result<bool, String> {
@@ -189,6 +230,12 @@ async fn is_enabled(state: &AppState) -> Result<bool, String> {
 pub fn start_check(state: AppState) {
     tokio::spawn(async move {
         tokio::time::sleep(FIRST_CHECK_DELAY).await;
+        // Роутер только что загрузился: ждём, пока прошивка применит свои настройки
+        if let Some(up) = uptime()
+            && up < MIN_UPTIME
+        {
+            tokio::time::sleep(MIN_UPTIME - up).await;
+        }
         // Одна и та же ошибка пишется в журнал один раз, а не каждую минуту
         let mut last_error = None;
         loop {
@@ -256,7 +303,7 @@ fn should_ask(record: Option<&Value>, enabled: bool) -> bool {
     !enabled
         && record.is_some_and(|r| {
             let auto = r.get("auto").and_then(Value::as_bool).unwrap_or(r.get("disabled_at").is_some());
-            auto && r.get("answered").and_then(Value::as_bool) != Some(true)
+            auto && !is_pending(r) && r.get("answered").and_then(Value::as_bool) != Some(true)
         })
 }
 
@@ -338,6 +385,27 @@ mod tests {
         assert!(!should_ask(Some(&json!({ "disabled_at": 1, "answered": true })), false), "запись v1.2.22 с ответом");
         assert!(!should_ask(Some(&json!({ "enabled_at": 1 })), false), "IPv6 вернули");
         assert!(!should_ask(None, false));
+    }
+
+    #[test]
+    fn interrupted_disable_keeps_removed_subnets() {
+        let saved = serde_json::Map::from_iter([("Default".to_string(), json!({ "bind": "Bridge0", "number": "0" }))]);
+        let current = json!({ "Second": { "bind": "Bridge0", "number": "1" } });
+        let merged = merge_subnets(saved, &current, &["Second".to_string()]);
+        assert_eq!(merged.keys().collect::<Vec<_>>(), ["Default", "Second"]);
+    }
+
+    #[test]
+    fn reads_uptime() {
+        assert_eq!(parse_uptime("100702.18 291013.82\n"), Some(Duration::from_secs_f64(100702.18)));
+        assert_eq!(parse_uptime(""), None);
+        assert_eq!(parse_uptime("abc 1"), None);
+    }
+
+    #[test]
+    fn no_dialog_while_disable_is_unfinished() {
+        assert!(!should_ask(Some(&json!({ "disabled_at": 1, "auto": true, "pending": true })), false));
+        assert!(should_ask(Some(&json!({ "disabled_at": 1, "auto": true, "pending": false })), false));
     }
 
     #[test]
