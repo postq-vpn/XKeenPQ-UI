@@ -495,7 +495,6 @@ async fn main() {
         .route("/api/policy-status", get(policy::get_policy_status))
         .route("/api/ipv6-status", get(ipv6::get_ipv6_status))
         .route("/api/ipv6", post(ipv6::post_ipv6))
-        .route("/api/ipv6/accept", post(ipv6::post_ipv6_accept))
         .route("/api/policy", post(policy::post_policy))
         .route(
             "/api/configs",

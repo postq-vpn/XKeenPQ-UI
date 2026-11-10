@@ -15,7 +15,7 @@ import { useState } from 'react'
 import { setIpv6 } from '../../lib/ipv6'
 import { useAppActions } from '../../lib/store'
 
-/** Подтверждение перед возвратом IPv6 в домашнюю сеть. */
+/** Подтверждение перед включением IPv6 в домашней сети. */
 export function Ipv6EnableDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { showToast } = useAppActions()
   const [busy, setBusy] = useState(false)
@@ -40,11 +40,11 @@ export function Ipv6EnableDialog({ open, onClose }: { open: boolean; onClose: ()
           <AlertDialogMedia>
             <IconAlertTriangle />
           </AlertDialogMedia>
-          <AlertDialogTitle>Вернуть IPv6 в домашнюю сеть?</AlertDialogTitle>
+          <AlertDialogTitle>Включить IPv6 в домашней сети?</AlertDialogTitle>
           <AlertDialogDescription>
             Устройства получат IPv6-адреса и будут открывать сервисы по IPv6. Многие VPN-серверы IPv6 не поддерживают, и часть
-            сервисов, например Instagram, может перестать открываться. Если что-то перестанет работать, отключите IPv6 в
-            веб-интерфейсе роутера: «Мои сети и Wi-Fi» → «Сегменты» → «Основная» → «Включить IPv6».
+            сервисов, например Instagram, может перестать открываться. Если что-то перестанет работать, отключите IPv6 кнопкой на
+            главной панели.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -53,7 +53,7 @@ export function Ipv6EnableDialog({ open, onClose }: { open: boolean; onClose: ()
           </Button>
           <AlertDialogAction disabled={busy} onClick={() => void confirm()}>
             {busy && <Spinner className="size-4" />}
-            Вернуть
+            Включить
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
