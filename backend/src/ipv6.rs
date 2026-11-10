@@ -23,6 +23,8 @@ const STATE_FILE: &str = "xkeen-ui-ipv6.json";
 const FIRST_CHECK_DELAY: Duration = Duration::from_secs(60);
 /// IPv6 у провайдера может появиться позже, например после переподключения.
 const CHECK_INTERVAL: Duration = Duration::from_secs(6 * 3600);
+/// Роутер не ответил или не принял команду: пробуем снова скоро, а не через `CHECK_INTERVAL`.
+const RETRY_INTERVAL: Duration = Duration::from_secs(60);
 const RCI_TIMEOUT: Duration = Duration::from_secs(8);
 
 fn state_path() -> std::path::PathBuf {
@@ -91,33 +93,45 @@ async fn disable(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
-/// Отключает IPv6 в основной сети, если панель ещё этого не делала. `true` — проверять больше не нужно.
-async fn disable_once(state: &AppState) -> bool {
+/// Итог проверки: что делать дальше фоновой задаче.
+#[derive(Debug, PartialEq)]
+enum Check {
+    /// Отключено или панель уже решала раньше: больше не проверяем.
+    Done,
+    /// Сейчас делать нечего (у провайдера нет IPv6 или в сети он уже выключен): проверим позже.
+    Later,
+    /// Роутер не ответил или не выполнил команду: скоро повторим.
+    Retry(String),
+}
+
+/// Отключает IPv6 в основной сети, если панель ещё этого не делала.
+async fn disable_once(state: &AppState) -> Check {
     if tokio::fs::try_exists(state_path()).await.unwrap_or(false) {
-        return true;
+        return Check::Done;
     }
-    let Ok(prefixes) = rci_get(state, "show/ipv6/prefixes").await else {
-        return false;
+    let prefixes = match rci_get(state, "show/ipv6/prefixes").await {
+        Ok(prefixes) => prefixes,
+        Err(e) => return Check::Retry(format!("не удалось прочитать префиксы IPv6: {e}")),
     };
     if !has_isp_prefix(&prefixes) {
-        return false;
+        return Check::Later;
     }
-    let Ok(subnets) = rci_get(state, "ipv6/subnet").await else {
-        return false;
+    let subnets = match rci_get(state, "ipv6/subnet").await {
+        Ok(subnets) => subnets,
+        Err(e) => return Check::Retry(format!("не удалось прочитать настройки IPv6: {e}")),
     };
-    // IPv6 в основной сети уже выключен: делать нечего, сообщение не нужно
+    // IPv6 в основной сети уже выключен: делать нечего, это покажет баннер
     if segment_subnets(&subnets, HOME_SEGMENT).is_empty() {
-        return false;
+        return Check::Later;
     }
     match disable(state).await {
         Ok(()) => {
-            log("INFO", "IPv6 в основной сети отключён: устройства ходят через VPN по IPv4. Включить можно в настройках панели".into());
-            true
+            log("INFO", "IPv6 в основной сети отключён: устройства ходят через VPN по IPv4. Вернуть можно на главной панели".into());
+            Check::Done
         }
         Err(e) => {
-            log("ERROR", format!("Не удалось отключить IPv6 в основной сети: {e}"));
             _ = tokio::fs::remove_file(state_path()).await;
-            false
+            Check::Retry(format!("не удалось отключить IPv6: {e}"))
         }
     }
 }
@@ -222,8 +236,24 @@ pub async fn post_ipv6(State(state): State<AppState>, Json(req): Json<Ipv6Req>) 
 pub fn start_check(state: AppState) {
     tokio::spawn(async move {
         tokio::time::sleep(FIRST_CHECK_DELAY).await;
-        while !disable_once(&state).await {
-            tokio::time::sleep(CHECK_INTERVAL).await;
+        // Одна и та же ошибка пишется в журнал один раз, а не каждую минуту
+        let mut last_error = None;
+        loop {
+            let delay = match disable_once(&state).await {
+                Check::Done => return,
+                Check::Later => {
+                    last_error = None;
+                    CHECK_INTERVAL
+                }
+                Check::Retry(error) => {
+                    if last_error.as_ref() != Some(&error) {
+                        log("WARN", format!("IPv6 в основной сети: {error}. Повтор через минуту"));
+                        last_error = Some(error);
+                    }
+                    RETRY_INTERVAL
+                }
+            };
+            tokio::time::sleep(delay).await;
         }
     });
 }
@@ -235,18 +265,26 @@ fn should_ask(record: Option<&Value>, enabled: bool) -> bool {
     })
 }
 
-/// `enabled` — IPv6 раздаётся в основную сеть; `ask` — показать окно про отключённый IPv6.
-/// Если роутер не ответил, окна нет.
+/// Баннер: IPv6 в основной сети выключен, а провайдер его даёт или его отключила панель. Кто
+/// выключил — неважно: пользователь должен видеть, почему у устройств нет IPv6, и мочь вернуть его.
+fn should_notice(record: Option<&Value>, enabled: bool, isp: bool) -> bool {
+    !enabled && (isp || record.is_some_and(|r| r.get("disabled_at").is_some()))
+}
+
+/// `enabled` — IPv6 раздаётся в основную сеть; `ask` — показать окно про отключённый панелью IPv6;
+/// `notice` — показать баннер. Если роутер не ответил, ни окна, ни баннера нет.
 pub async fn get_ipv6_status(State(state): State<AppState>) -> impl IntoResponse {
-    let record = read_record().await;
-    if record.is_none() {
-        return Json(json!({ "success": true, "ask": false }));
-    }
-    let Ok(subnets) = rci_get(&state, "ipv6/subnet").await else {
-        return Json(json!({ "success": true, "ask": false }));
+    let (Ok(subnets), Ok(prefixes)) = (rci_get(&state, "ipv6/subnet").await, rci_get(&state, "show/ipv6/prefixes").await) else {
+        return Json(json!({ "success": true, "ask": false, "notice": false }));
     };
+    let record = read_record().await;
     let enabled = !segment_subnets(&subnets, HOME_SEGMENT).is_empty();
-    Json(json!({ "success": true, "enabled": enabled, "ask": should_ask(record.as_ref(), enabled) }))
+    Json(json!({
+        "success": true,
+        "enabled": enabled,
+        "ask": should_ask(record.as_ref(), enabled),
+        "notice": should_notice(record.as_ref(), enabled, has_isp_prefix(&prefixes)),
+    }))
 }
 
 #[cfg(test)]
@@ -307,6 +345,16 @@ mod tests {
         let enabled_by_user = json!({ "enabled_at": 1 });
         assert!(!should_ask(Some(&enabled_by_user), false));
         assert!(!should_ask(None, false));
+    }
+
+    #[test]
+    fn notice_shows_whoever_turned_ipv6_off() {
+        let by_panel = json!({ "disabled_at": 1 });
+        assert!(should_notice(Some(&by_panel), false, true));
+        assert!(should_notice(Some(&by_panel), false, false), "провайдер перестал давать IPv6, а панель отключала");
+        assert!(should_notice(None, false, true), "выключили вручную, провайдер даёт IPv6");
+        assert!(!should_notice(None, false, false), "IPv6 нет вовсе");
+        assert!(!should_notice(Some(&by_panel), true, true), "IPv6 уже вернули");
     }
 
     #[test]
