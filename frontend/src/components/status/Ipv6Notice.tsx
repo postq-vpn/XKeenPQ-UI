@@ -6,10 +6,12 @@ import { IconAlertTriangle, IconHelpCircle, IconInfoCircle } from '@tabler/icons
 import { useCallback, useEffect, useState } from 'react'
 import { IPV6_CHANGED, type Ipv6Status, loadIpv6Status, setIpv6 } from '../../lib/ipv6'
 import { useAppActions } from '../../lib/store'
+import { Ipv6Dialog } from './Ipv6Dialog'
 import { Ipv6EnableDialog } from './Ipv6EnableDialog'
 
-/** Как часто перечитывать состояние, пока панель открыта: IPv6 могут включить в роутере. */
-const POLL_MS = 2 * 60 * 60 * 1000
+/** Как часто перечитывать состояние, пока панель открыта: панель отключает IPv6 вскоре после
+ * запуска, а включить его могут и в роутере. */
+const POLL_MS = 60_000
 
 /** Адрес настроек основной сети, если панель открыта по IP роутера. */
 function segmentSettingsUrl() {
@@ -18,7 +20,8 @@ function segmentSettingsUrl() {
 
 /**
  * Узкий постоянный баннер про IPv6 в домашней сети (backend: ipv6.rs). Выключен — сообщение и
- * «Включить» с подтверждением; включён — предупреждение и «Отключить».
+ * «Включить» с подтверждением; включён — предупреждение и «Отключить». После автоматического
+ * отключения поверх показывается окно с объяснением.
  */
 export function Ipv6Notice() {
   const { showToast } = useAppActions()
@@ -114,6 +117,7 @@ export function Ipv6Notice() {
         {enabled ? 'Отключить' : 'Включить'}
       </Button>
       <Ipv6EnableDialog open={confirming} onClose={() => setConfirming(false)} />
+      <Ipv6Dialog open={!!status.ask} onClose={() => setStatus((s) => ({ ...s, ask: false }))} />
     </div>
   )
 }

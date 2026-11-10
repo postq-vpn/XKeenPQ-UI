@@ -7,7 +7,8 @@
 //! от провайдера остаётся. Что удалено, запоминается в файле, чтобы вернуть как было.
 //!
 //! Дальше панель IPv6 сама не выключает: раз в 2 часа проверяет и, если IPv6 снова включён,
-//! предупреждает в журнале. На главной всегда видно, включён IPv6 или нет, с кнопкой переключения.
+//! предупреждает в журнале. На главной всегда видно, включён IPv6 или нет, с кнопкой переключения,
+//! а после отключения при первом запуске один раз показывается окно с объяснением.
 
 use crate::logger::log;
 use crate::policy::{rci_command, rci_get, with_token};
@@ -21,12 +22,12 @@ use tokio::sync::Mutex;
 /// Основной сегмент роутера, как в `policy`.
 const HOME_SEGMENT: &str = "Bridge0";
 const STATE_FILE: &str = "xkeen-ui-ipv6.json";
-/// Роутер отвечает на RCI не сразу после загрузки.
-const FIRST_CHECK_DELAY: Duration = Duration::from_secs(60);
+/// Небольшая пауза после запуска: панель и роутер успевают подняться.
+const FIRST_CHECK_DELAY: Duration = Duration::from_secs(10);
 /// Как часто проверять, не включили ли IPv6 снова.
 const CHECK_INTERVAL: Duration = Duration::from_secs(2 * 3600);
-/// Роутер не ответил при первом отключении: пробуем снова скоро.
-const RETRY_INTERVAL: Duration = Duration::from_secs(60);
+/// Роутер не ответил при первом отключении (например, ещё загружается): пробуем снова скоро.
+const RETRY_INTERVAL: Duration = Duration::from_secs(30);
 const RCI_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// Отключение, включение и фоновая проверка не должны идти одновременно.
@@ -73,7 +74,8 @@ async fn saved_subnets() -> serde_json::Map<String, Value> {
 }
 
 /// Отключает IPv6 в основной сети и запоминает, что было включено, чтобы потом вернуть как было.
-async fn disable(state: &AppState) -> Result<(), String> {
+/// `auto` — отключила сама панель при первом запуске: тогда пользователю покажут окно.
+async fn disable(state: &AppState, auto: bool) -> Result<(), String> {
     let subnets = rci_get(state, "ipv6/subnet").await?;
     let names = segment_subnets(&subnets, HOME_SEGMENT);
     if let Some(bad) = names.iter().find(|n| !is_plain_name(n)) {
@@ -85,7 +87,7 @@ async fn disable(state: &AppState) -> Result<(), String> {
     } else {
         names.iter().map(|n| (n.clone(), subnets[n].clone())).collect()
     };
-    write_record(&json!({ "disabled_at": now(), "segment": HOME_SEGMENT, "subnets": saved })).await?;
+    write_record(&json!({ "disabled_at": now(), "auto": auto, "segment": HOME_SEGMENT, "subnets": saved })).await?;
     for name in &names {
         rci_command(state, &format!("no ipv6 subnet {name}")).await?;
     }
@@ -170,7 +172,7 @@ async fn first_run(state: &AppState) -> Result<bool, String> {
         write_record(&json!({ "found_off_at": now(), "segment": HOME_SEGMENT, "subnets": {} })).await?;
         return Ok(false);
     }
-    match disable(state).await {
+    match disable(state, true).await {
         Ok(()) => Ok(true),
         Err(e) => {
             _ = tokio::fs::remove_file(state_path()).await;
@@ -199,7 +201,7 @@ pub fn start_check(state: AppState) {
                 }
                 Err(error) => {
                     if last_error.as_ref() != Some(&error) {
-                        log("WARN", format!("IPv6 в основной сети не отключён: {error}. Повтор через минуту"));
+                        log("WARN", format!("IPv6 в основной сети не отключён: {error}. Повтор через 30 секунд"));
                         last_error = Some(error);
                     }
                     tokio::time::sleep(RETRY_INTERVAL).await;
@@ -232,7 +234,7 @@ pub struct Ipv6Req {
 /// Включает или отключает IPv6 в основной сети.
 pub async fn post_ipv6(State(state): State<AppState>, Json(req): Json<Ipv6Req>) -> impl IntoResponse {
     let _guard = CHANGE_LOCK.lock().await;
-    let result = if req.enabled { enable(&state).await } else { disable(&state).await };
+    let result = if req.enabled { enable(&state).await } else { disable(&state, false).await };
     let action = if req.enabled { "включить" } else { "отключить" };
     match result {
         Ok(()) => {
@@ -247,10 +249,34 @@ pub async fn post_ipv6(State(state): State<AppState>, Json(req): Json<Ipv6Req>) 
     }
 }
 
-/// `available` — роутер ответил; `enabled` — IPv6 раздаётся в основную сеть.
+/// Окно: панель сама отключила IPv6, он всё ещё выключен, а пользователь ещё не ответил.
+fn should_ask(record: Option<&Value>, enabled: bool) -> bool {
+    !enabled
+        && record.is_some_and(|r| {
+            r.get("auto").and_then(Value::as_bool) == Some(true) && r.get("answered").and_then(Value::as_bool) != Some(true)
+        })
+}
+
+/// Пользователь прочитал окно и оставил IPv6 выключенным: окно больше не показывается.
+pub async fn post_ipv6_accept() -> impl IntoResponse {
+    let _guard = CHANGE_LOCK.lock().await;
+    let Some(mut record) = read_record().await else {
+        return Json(json!({ "success": false, "error": "Панель не отключала IPv6" }));
+    };
+    record["answered"] = json!(true);
+    match write_record(&record).await {
+        Ok(()) => Json(json!({ "success": true })),
+        Err(e) => Json(json!({ "success": false, "error": e })),
+    }
+}
+
+/// `available` — роутер ответил; `enabled` — IPv6 раздаётся в основную сеть; `ask` — показать окно.
 pub async fn get_ipv6_status(State(state): State<AppState>) -> impl IntoResponse {
     match is_enabled(&state).await {
-        Ok(enabled) => Json(json!({ "success": true, "available": true, "enabled": enabled })),
+        Ok(enabled) => {
+            let ask = should_ask(read_record().await.as_ref(), enabled);
+            Json(json!({ "success": true, "available": true, "enabled": enabled, "ask": ask }))
+        }
         Err(_) => Json(json!({ "success": true, "available": false })),
     }
 }
@@ -295,6 +321,17 @@ mod tests {
         assert_eq!(segment_subnets(&Value::Object(free.clone()), "Bridge0"), ["Default"]);
         let taken = default_subnets(&json!({ "Default": { "bind": "Bridge1" } }));
         assert_eq!(taken.keys().collect::<Vec<_>>(), ["ipv6Subnet_Bridge0"]);
+    }
+
+    #[test]
+    fn asks_only_after_automatic_disable() {
+        let auto = json!({ "disabled_at": 1, "auto": true });
+        assert!(should_ask(Some(&auto), false));
+        assert!(!should_ask(Some(&auto), true), "IPv6 уже включили");
+        assert!(!should_ask(Some(&json!({ "disabled_at": 1, "auto": true, "answered": true })), false));
+        assert!(!should_ask(Some(&json!({ "disabled_at": 1, "auto": false })), false), "отключили кнопкой");
+        assert!(!should_ask(Some(&json!({ "found_off_at": 1 })), false), "был выключен до панели");
+        assert!(!should_ask(None, false));
     }
 
     #[test]
