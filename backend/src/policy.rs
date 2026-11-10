@@ -116,14 +116,14 @@ fn rci_error(response: &Value) -> Option<String> {
     })
 }
 
-fn with_token(request: reqwest::RequestBuilder, state: &AppState) -> reqwest::RequestBuilder {
+pub(crate) fn with_token(request: reqwest::RequestBuilder, state: &AppState) -> reqwest::RequestBuilder {
     match state.rci_token.as_ref() {
         Some(token) => request.header("X-Ndma-Tkn", token),
         None => request,
     }
 }
 
-async fn rci_get(state: &AppState, path: &str) -> Result<Value, String> {
+pub(crate) async fn rci_get(state: &AppState, path: &str) -> Result<Value, String> {
     let request = state.http_client.get(format!("{RCI}/{path}")).timeout(RCI_TIMEOUT);
     let response = with_token(request, state).send().await.map_err(|e| e.to_string())?;
     if !response.status().is_success() {
@@ -133,7 +133,7 @@ async fn rci_get(state: &AppState, path: &str) -> Result<Value, String> {
 }
 
 /// Выполняет команду консоли роутера. Ошибка команды приходит в теле ответа с кодом 200.
-async fn rci_command(state: &AppState, command: &str) -> Result<(), String> {
+pub(crate) async fn rci_command(state: &AppState, command: &str) -> Result<(), String> {
     let request = state
         .http_client
         .post(format!("{RCI}/"))

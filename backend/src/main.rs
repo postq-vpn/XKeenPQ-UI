@@ -5,6 +5,7 @@ mod controller;
 mod frontend_embedder;
 mod geo;
 mod geoipset;
+mod ipv6;
 mod logger;
 mod policy;
 mod private_file;
@@ -457,6 +458,7 @@ async fn main() {
     version::start_update_checker(state.clone());
     subscriptions::start_scheduler(state.clone());
     subscriptions::start_watch();
+    ipv6::start_check(state.clone());
     xray_log::start_log_trimmer();
     if log_config_changed && !controller::get_pid("xray").is_empty() {
         log("INFO", "Перезапуск Xray после изменения настроек логов".into());
@@ -491,6 +493,9 @@ async fn main() {
             get(controller::get_control).post(controller::post_control),
         )
         .route("/api/policy-status", get(policy::get_policy_status))
+        .route("/api/ipv6-status", get(ipv6::get_ipv6_status))
+        .route("/api/ipv6", post(ipv6::post_ipv6))
+        .route("/api/ipv6/accept", post(ipv6::post_ipv6_accept))
         .route("/api/policy", post(policy::post_policy))
         .route(
             "/api/configs",

@@ -15,6 +15,7 @@ import { SettingsModal } from './components/modals/Settings'
 import { TemplateModal } from './components/modals/Templates'
 import { UpdateModal } from './components/modals/Update'
 import { XraySubscriptionsModal } from './components/modals/XraySubscriptions'
+import { Ipv6Dialog } from './components/status/Ipv6Dialog'
 import { PolicyWarning } from './components/status/PolicyWarning'
 import { RoutingWarning } from './components/status/RoutingWarning'
 import { StatusBar } from './components/status/StatusBar'
@@ -459,6 +460,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
           />
           <RoutingWarning reloadKey={subsReloadKey} />
           <PolicyWarning onRestarted={() => void checkStatus()} />
+          <Ipv6Dialog />
           <div className={cn(view !== 'servers' && 'hidden')}>
             <XraySubscriptionsModal
               reloadKey={subsReloadKey}
