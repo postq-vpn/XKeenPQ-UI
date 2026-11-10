@@ -22,12 +22,12 @@ use tokio::sync::Mutex;
 /// Основной сегмент роутера, как в `policy`.
 const HOME_SEGMENT: &str = "Bridge0";
 const STATE_FILE: &str = "xkeen-ui-ipv6.json";
-/// Небольшая пауза после запуска: панель и роутер успевают подняться.
-const FIRST_CHECK_DELAY: Duration = Duration::from_secs(10);
+/// Короткая пауза после запуска, чтобы панель успела подняться; RCI роутера обычно уже отвечает.
+const FIRST_CHECK_DELAY: Duration = Duration::from_secs(2);
 /// Как часто проверять, не включили ли IPv6 снова.
 const CHECK_INTERVAL: Duration = Duration::from_secs(2 * 3600);
 /// Роутер не ответил при первом отключении (например, ещё загружается): пробуем снова скоро.
-const RETRY_INTERVAL: Duration = Duration::from_secs(30);
+const RETRY_INTERVAL: Duration = Duration::from_secs(10);
 const RCI_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// Отключение, включение и фоновая проверка не должны идти одновременно.
@@ -201,7 +201,7 @@ pub fn start_check(state: AppState) {
                 }
                 Err(error) => {
                     if last_error.as_ref() != Some(&error) {
-                        log("WARN", format!("IPv6 в основной сети не отключён: {error}. Повтор через 30 секунд"));
+                        log("WARN", format!("IPv6 в основной сети не отключён: {error}. Повтор через 10 секунд"));
                         last_error = Some(error);
                     }
                     tokio::time::sleep(RETRY_INTERVAL).await;
@@ -249,11 +249,14 @@ pub async fn post_ipv6(State(state): State<AppState>, Json(req): Json<Ipv6Req>) 
     }
 }
 
-/// Окно: панель сама отключила IPv6, он всё ещё выключен, а пользователь ещё не ответил.
+/// Окно: панель сама отключила IPv6, он всё ещё выключен, а пользователь ещё не ответил. Записи
+/// v1.2.24 пометки `auto` не имеют: их отключение тоже считается автоматическим, иначе после
+/// обновления окно не показалось бы никогда.
 fn should_ask(record: Option<&Value>, enabled: bool) -> bool {
     !enabled
         && record.is_some_and(|r| {
-            r.get("auto").and_then(Value::as_bool) == Some(true) && r.get("answered").and_then(Value::as_bool) != Some(true)
+            let auto = r.get("auto").and_then(Value::as_bool).unwrap_or(r.get("disabled_at").is_some());
+            auto && r.get("answered").and_then(Value::as_bool) != Some(true)
         })
 }
 
@@ -331,6 +334,9 @@ mod tests {
         assert!(!should_ask(Some(&json!({ "disabled_at": 1, "auto": true, "answered": true })), false));
         assert!(!should_ask(Some(&json!({ "disabled_at": 1, "auto": false })), false), "отключили кнопкой");
         assert!(!should_ask(Some(&json!({ "found_off_at": 1 })), false), "был выключен до панели");
+        assert!(should_ask(Some(&json!({ "disabled_at": 1 })), false), "запись v1.2.24 без пометки");
+        assert!(!should_ask(Some(&json!({ "disabled_at": 1, "answered": true })), false), "запись v1.2.22 с ответом");
+        assert!(!should_ask(Some(&json!({ "enabled_at": 1 })), false), "IPv6 вернули");
         assert!(!should_ask(None, false));
     }
 
