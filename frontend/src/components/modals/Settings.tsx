@@ -1,20 +1,17 @@
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
 import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } from '@/components/ui/popover'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { TechMenuList } from '../configuration/TechFilesMenu'
 import { RuExcludeSetting } from './RuExcludeSetting'
 import { useTechMenuUnlocked } from '../../lib/techMenu'
-import { IconAlertCircle, IconSettings, IconX, IconArrowBackUp } from '@tabler/icons-react'
-import { Fragment, memo, useCallback, useEffect, useState } from 'react'
+import { X as IconX, Undo2 as IconArrowBackUp } from 'lucide-react'
+import { memo, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { cn } from '@/lib/utils'
 import { apiCall } from '../../lib/api'
 import { useAppContext, useModalContext } from '../../lib/store'
 import { XRAY_LOG_LEVELS, type AppSettings, type ThemeMode, type XrayLogLevel } from '../../lib/types'
@@ -92,9 +89,9 @@ const pluginSettings: ToggleSetting[] = [
 ]
 
 const themeOptions: { value: ThemeMode; label: string }[] = [
-  { value: 'auto', label: 'Авто' },
+  { value: 'auto', label: 'Как в системе' },
   { value: 'light', label: 'Светлая' },
-  { value: 'dark', label: 'Темная' },
+  { value: 'dark', label: 'Тёмная' },
 ]
 
 const SwitchSettingField = memo(function SwitchSettingField({
@@ -109,10 +106,10 @@ const SwitchSettingField = memo(function SwitchSettingField({
   const onToggle = useCallback((value: boolean) => onToggleSetting(item, value), [item, onToggleSetting])
 
   return (
-    <Field orientation="horizontal" className="px-0 py-3">
+    <Field orientation="horizontal">
       <FieldContent>
         <FieldLabel htmlFor={item.id}>{item.title}</FieldLabel>
-        <FieldDescription className="text-[13px] whitespace-pre-line">{item.description}</FieldDescription>
+        <FieldDescription className="whitespace-pre-line">{item.description}</FieldDescription>
       </FieldContent>
       <Switch id={item.id} checked={checked} onCheckedChange={onToggle} aria-label={item.title} />
     </Field>
@@ -132,8 +129,8 @@ const ProxyRow = memo(function ProxyRow({
 
   return (
     <div className="flex items-center gap-2">
-      <div className="bg-input-background flex h-9 min-w-0 flex-1 items-center rounded-md border px-2.5">
-        <span className="w-full truncate text-[13px]">{proxy}</span>
+      <div className="flex h-11 min-w-0 flex-1 items-center rounded-[12px] bg-[var(--rd-surface)] px-3.5">
+        <span className="w-full truncate text-[14px]">{proxy}</span>
       </div>
       <Button variant="destructive" className="shrink-0" onClick={onRemoveClick} aria-label={`Удалить прокси ${proxy}`}>
         Удалить
@@ -161,16 +158,16 @@ const ProxySettingsField = memo(function ProxySettingsField({
   }, [hasNewProxy, newProxy, onAddProxy])
 
   return (
-    <Field className="px-0 py-3">
+    <Field>
       <FieldContent>
         <FieldLabel htmlFor="github-proxy-input">GitHub Proxy</FieldLabel>
-        <FieldDescription className="text-[13px] text-wrap!">
+        <FieldDescription className="text-wrap!">
           Прокси для загрузки обновлений при отсутствии доступа к GitHub, используются по порядку сверху вниз
         </FieldDescription>
       </FieldContent>
 
       {githubProxies.length === 0 ? (
-        <FieldDescription className="py-1 text-[13px]">Прокси не добавлены</FieldDescription>
+        <FieldDescription>Прокси не добавлены</FieldDescription>
       ) : (
         <div className="flex flex-col gap-3">
           {githubProxies.map((proxy, index) => (
@@ -269,10 +266,10 @@ const RepoSourceField = memo(function RepoSourceField({
   )
 
   return (
-    <Field className="px-0 py-3">
+    <Field>
       <FieldContent>
         <FieldLabel htmlFor={`${repoKey}-input`}>{label}</FieldLabel>
-        <FieldDescription className="text-[13px] text-wrap!">{description}</FieldDescription>
+        <FieldDescription className="text-wrap!">{description}</FieldDescription>
       </FieldContent>
       <Field orientation="horizontal" className="gap-2">
         <InputGroup className="flex-1">
@@ -331,10 +328,10 @@ function AuthSettingsField({
 
   return (
     <FieldGroup className="gap-0!">
-      <Field orientation="horizontal" className="px-0 py-3">
+      <Field orientation="horizontal">
         <FieldContent>
-          <FieldLabel>Авторизация</FieldLabel>
-          <FieldDescription className="text-[13px]">Защита панели с помощью пароля при входе</FieldDescription>
+          <FieldLabel>Пароль для входа</FieldLabel>
+          <FieldDescription>Панель спросит пароль при открытии</FieldDescription>
         </FieldContent>
         <Switch checked={authEnabled} onCheckedChange={onToggle} aria-label="Авторизация" />
       </Field>
@@ -342,10 +339,10 @@ function AuthSettingsField({
       {authEnabled && (
         <>
           <Separator className="my-0" />
-          <Field orientation="horizontal" className="px-0 py-3">
+          <Field orientation="horizontal">
             <FieldContent>
-              <FieldLabel>Сбросить пароль</FieldLabel>
-              <FieldDescription className="text-[13px]">Сбросить старый пароль и установить новый</FieldDescription>
+              <FieldLabel>Сменить пароль</FieldLabel>
+              <FieldDescription>Сбросить текущий и задать новый</FieldDescription>
             </FieldContent>
             <Popover open={resetOpen} onOpenChange={setResetOpen}>
               <PopoverTrigger
@@ -383,6 +380,19 @@ function AuthSettingsField({
   )
 }
 
+/** Группа настроек: подпись сверху, строки на серой подложке (globals.css, .rd-settings-group). */
+function SettingsGroup({ title, notice, children }: { title: string; notice?: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-(--rd-space-item)">
+      <div className="flex flex-col gap-(--rd-space-title) px-1">
+        <h3 className="rd-meta">{title}</h3>
+        {notice && <p className="text-[13px] leading-[18px] text-[var(--rd-warn-text)]">{notice}</p>}
+      </div>
+      <div className="rd-settings-group">{children}</div>
+    </section>
+  )
+}
+
 interface SettingsModalProps {
   /** Открыть журнал из «Технического меню». */
   onOpenLog: () => void
@@ -390,7 +400,7 @@ interface SettingsModalProps {
   onOpenFile: (file: string) => void
 }
 
-export function SettingsModal({ onOpenLog, onOpenFile }: SettingsModalProps) {
+export function SettingsModal({ onOpenLog }: SettingsModalProps) {
   const { state, dispatch, showToast } = useAppContext({ includeSettings: true })
   const { modals } = useModalContext()
   const { settings } = state
@@ -504,190 +514,180 @@ export function SettingsModal({ onOpenLog, onOpenFile }: SettingsModalProps) {
     [dispatch, saveSetting]
   )
 
+  const timezoneItems = Object.fromEntries(
+    Array.from({ length: 27 }, (_, i) => {
+      const v = String(i - 12)
+      return [v, `UTC${i - 12 >= 0 ? '+' : ''}${v}`]
+    })
+  )
+
+  const general = (
+    <div className="flex flex-col gap-(--rd-space-card)">
+      <SettingsGroup title="Оформление">
+        <div className="flex flex-col gap-3 px-4 py-3.5">
+          <span className="text-[15px] leading-5 font-medium text-[var(--rd-heading)]">Тема</span>
+          <div role="radiogroup" aria-label="Тема" className="grid grid-cols-3 gap-1 rounded-[12px] bg-[var(--rd-surface)] p-1">
+            {themeOptions.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                role="radio"
+                aria-checked={settings.theme === o.value}
+                onClick={() => setTheme(o.value)}
+                className={cn(
+                  'h-9 cursor-pointer rounded-[9px] text-[14px] font-medium transition-colors',
+                  settings.theme === o.value
+                    ? 'bg-[var(--rd-field)] text-[var(--rd-heading)] dark:bg-[var(--rd-chip-hover)]'
+                    : 'text-[var(--rd-caption)] hover:text-[var(--rd-heading)]'
+                )}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </SettingsGroup>
+      <SettingsGroup title="Вход в панель">
+        <AuthSettingsField authEnabled={settings.authEnabled} onToggle={toggleAuth} showToast={showToast} />
+      </SettingsGroup>
+    </div>
+  )
+
+  const tech = (
+    <div className="flex flex-col gap-(--rd-space-card)">
+      <button
+        type="button"
+        className="rd-btn-tile rd-btn-tile--muted min-h-14 w-full text-[15px]"
+        onClick={() => {
+          close()
+          onOpenLog()
+        }}
+      >
+        Журнал Xray, конфиги и списки XKeen
+      </button>
+
+      <SettingsGroup title="Журнал">
+        <Field orientation="horizontal">
+          <FieldContent>
+            <FieldLabel htmlFor="xray-log-level">Уровень логов Xray</FieldLabel>
+            <FieldDescription>Подробность журнала ошибок. При смене Xray перезапускается</FieldDescription>
+          </FieldContent>
+          <Select
+            value={settings.xrayLogLevel}
+            items={Object.fromEntries(XRAY_LOG_LEVELS.map((l) => [l, l]))}
+            onValueChange={(v) => void setXrayLogLevel(v as string)}
+          >
+            <SelectTrigger id="xray-log-level" className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end">
+              <SelectGroup>
+                {XRAY_LOG_LEVELS.map((l) => (
+                  <SelectItem key={l} value={l}>
+                    {l}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field orientation="horizontal">
+          <FieldContent>
+            <FieldLabel htmlFor="timezone">Часовой пояс</FieldLabel>
+            <FieldDescription>Сдвиг времени для записей в журнале</FieldDescription>
+          </FieldContent>
+          <Select value={String(settings.timezone)} items={timezoneItems} onValueChange={setTimezone}>
+            <SelectTrigger id="timezone" className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end" className="max-h-72">
+              <SelectGroup>
+                {Object.entries(timezoneItems).map(([v, label]) => (
+                  <SelectItem key={v} value={v}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </Field>
+      </SettingsGroup>
+
+      <SettingsGroup title="Маршрутизация">
+        <RuExcludeSetting />
+      </SettingsGroup>
+
+      <SettingsGroup
+        title="Режим GUI"
+        notice="Функция экспериментальная. Перед включением сделайте бэкап конфигураций. Несовместимо с комментариями."
+      >
+        {guiSettings.map((item) => (
+          <SwitchSettingField key={item.id} item={item} checked={settings[item.key]} onToggleSetting={toggleSetting} />
+        ))}
+      </SettingsGroup>
+
+      <SettingsGroup title="Обновления">
+        {updateSettings.map((item) => (
+          <SwitchSettingField key={item.id} item={item} checked={settings[item.key]} onToggleSetting={toggleSetting} />
+        ))}
+        <RepoSourceField
+          repoKey="xrayRepo"
+          label="Источник Xray"
+          description="Репозиторий GitHub, с которого проверяются и загружаются обновления Xray"
+          value={settings.xrayRepo}
+          onSave={saveRepoSource}
+          showToast={showToast}
+        />
+        <ProxySettingsField githubProxies={settings.githubProxies} onAddProxy={addProxy} onRemoveProxy={removeProxy} />
+      </SettingsGroup>
+
+      <SettingsGroup title="Плагины" notice="Экспериментальные функции, тщательно не тестировались. Используйте на свой страх и риск.">
+        {pluginSettings.map((item) => (
+          <SwitchSettingField key={item.id} item={item} checked={settings[item.key]} onToggleSetting={toggleSetting} />
+        ))}
+      </SettingsGroup>
+    </div>
+  )
+
   return (
     <Dialog open={modals.showSettingsModal} onOpenChange={(open) => !open && close()}>
-      <DialogContent className="flex h-[79dvh]! max-w-xl! flex-col overflow-hidden md:h-142!">
+      <DialogContent className="flex max-h-[88dvh] max-w-xl! flex-col gap-(--rd-space-card) overflow-hidden">
         <DialogHeader className="shrink-0">
-          <DialogTitle className="flex items-center gap-2">
-            <IconSettings size={24} className="text-chart-2" /> Настройки
-          </DialogTitle>
+          <DialogTitle>Настройки</DialogTitle>
         </DialogHeader>
 
-        <Tabs value={tab} onValueChange={setTab} className="flex flex-1 flex-col overflow-hidden">
-          <div className="scrollbar-none overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-            <TabsList
-              variant="line"
-              className="border-border w-max shrink-0 justify-start gap-3 rounded-none border-b px-0 whitespace-nowrap"
-            >
-              <TabsTrigger value="general">Общие</TabsTrigger>
-              {techMenu && <TabsTrigger value="tech">Техническое меню</TabsTrigger>}
-            </TabsList>
+        {techMenu && (
+          <div
+            role="tablist"
+            aria-label="Разделы настроек"
+            className="grid shrink-0 grid-cols-2 gap-1 rounded-[14px] bg-[var(--rd-field)] p-1"
+          >
+            {[
+              { id: 'general', label: 'Основные' },
+              { id: 'tech', label: 'Техническое меню' },
+            ].map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.id}
+                onClick={() => setTab(t.id)}
+                className={cn(
+                  'h-10 cursor-pointer rounded-[10px] text-[15px] font-medium transition-colors',
+                  tab === t.id
+                    ? 'bg-[var(--rd-surface)] text-[var(--rd-heading)] shadow-[0_2px_10px_rgba(0,0,0,0.06)] dark:bg-[var(--rd-chip-hover)]'
+                    : 'text-[var(--rd-caption)] hover:text-[var(--rd-heading)]'
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
+        )}
 
-          <ScrollArea className="min-h-0 flex-1">
-            <div className="pr-2 pl-1">
-              <TabsContent value="general">
-                <FieldGroup className="gap-0!">
-                  <p className="text-muted-foreground pt-3 pb-1 text-xs font-medium tracking-wider uppercase">Оформление</p>
-                  <Field orientation="horizontal" className="px-0 py-3">
-                    <FieldContent>
-                      <FieldLabel htmlFor="theme">Тема приложения</FieldLabel>
-                      <FieldDescription className="text-[13px]">Ручной режим или синхронизация с системой</FieldDescription>
-                    </FieldContent>
-                    <Select
-                      value={settings.theme}
-                      items={Object.fromEntries(themeOptions.map((o) => [o.value, o.label]))}
-                      onValueChange={setTheme}
-                    >
-                      <SelectTrigger id="theme" className="w-34 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {themeOptions.map((item) => (
-                            <SelectItem key={item.value} value={item.value} className="text-sm">
-                              {item.label}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Separator className="my-2" />
-                  <p className="text-muted-foreground pt-3 pb-1 text-xs font-medium tracking-wider uppercase">Авторизация</p>
-                  <AuthSettingsField authEnabled={settings.authEnabled} onToggle={toggleAuth} showToast={showToast} />
-                  <Separator className="my-2" />
-                  <p className="text-muted-foreground pt-1 pb-1 text-xs font-medium tracking-wider uppercase">Журнал</p>
-                  <Field orientation="horizontal" className="px-0 py-3">
-                    <FieldContent>
-                      <FieldLabel htmlFor="timezone">Часовой пояс</FieldLabel>
-                      <FieldDescription className="text-[13px]">Сдвиг времени для записей в журнале</FieldDescription>
-                    </FieldContent>
-                    <Select
-                      value={String(settings.timezone)}
-                      items={Object.fromEntries(
-                        Array.from({ length: 27 }, (_, i) => {
-                          const v = String(i - 12)
-                          return [v, `UTC${i - 12 >= 0 ? '+' : ''}${v}`]
-                        })
-                      )}
-                      onValueChange={setTimezone}
-                    >
-                      <SelectTrigger id="timezone" className="w-30 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {Array.from({ length: 27 }, (_, i) => i - 12).map((offset) => (
-                            <SelectItem key={offset} value={String(offset)} className="text-sm">
-                              UTC{offset >= 0 ? '+' : ''}
-                              {offset}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                </FieldGroup>
-              </TabsContent>
-
-              <TabsContent value="tech">
-                <TechMenuList
-                  onSelectLog={() => {
-                    close()
-                    onOpenLog()
-                  }}
-                  onSelectFile={(file) => {
-                    close()
-                    onOpenFile(file)
-                  }}
-                />
-                <Field orientation="horizontal" className="px-2 py-3">
-                  <FieldContent>
-                    <FieldLabel htmlFor="xray-log-level">Уровень логов Xray</FieldLabel>
-                    <FieldDescription className="text-[13px]">
-                      Подробность журнала ошибок. При смене Xray перезапускается
-                    </FieldDescription>
-                  </FieldContent>
-                  <Select
-                    value={settings.xrayLogLevel}
-                    items={Object.fromEntries(XRAY_LOG_LEVELS.map((l) => [l, l]))}
-                    onValueChange={(v) => void setXrayLogLevel(v as string)}
-                  >
-                    <SelectTrigger id="xray-log-level" className="w-30 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {XRAY_LOG_LEVELS.map((l) => (
-                          <SelectItem key={l} value={l} className="text-sm">
-                            {l}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <RuExcludeSetting />
-                <Separator className="my-3" />
-                <p className="text-muted-foreground pt-4 pb-1 text-xs font-medium tracking-wider uppercase">Режим GUI</p>
-                <Alert className="my-2 border-amber-500/20 bg-amber-100 p-2.75 text-yellow-600 dark:bg-[#2a1f0d] dark:text-amber-400">
-                  <IconAlertCircle className="size-4.5" />
-                  <AlertDescription className="text-xs leading-4.25 tracking-wide text-yellow-600 dark:text-amber-400">
-                    Функция экспериментальная. Перед включением сделайте бэкап конфигураций. Несовместимо с комментариями.
-                  </AlertDescription>
-                </Alert>
-
-                <FieldGroup className="gap-0!">
-                  {guiSettings.map((item, index) => (
-                    <Fragment key={item.id}>
-                      <SwitchSettingField item={item} checked={settings[item.key]} onToggleSetting={toggleSetting} />
-                      {index < guiSettings.length - 1 && <Separator className="my-0" />}
-                    </Fragment>
-                  ))}
-                </FieldGroup>
-                <Separator className="my-3" />
-                <p className="text-muted-foreground pt-4 pb-1 text-xs font-medium tracking-wider uppercase">Обновления</p>
-                <FieldGroup className="gap-0!">
-                  {updateSettings.map((item) => (
-                    <Fragment key={item.id}>
-                      <SwitchSettingField item={item} checked={settings[item.key]} onToggleSetting={toggleSetting} />
-                      <Separator className="my-0" />
-                    </Fragment>
-                  ))}
-                  <p className="text-muted-foreground pt-3 pb-1 text-xs font-medium tracking-wider uppercase">Источники обновлений</p>
-                  <RepoSourceField
-                    repoKey="xrayRepo"
-                    label="Источник Xray"
-                    description="Репозиторий GitHub, с которого загружаются/проверяются обновления Xray"
-                    value={settings.xrayRepo}
-                    onSave={saveRepoSource}
-                    showToast={showToast}
-                  />
-                  <Separator className="my-0" />
-                  <ProxySettingsField githubProxies={settings.githubProxies} onAddProxy={addProxy} onRemoveProxy={removeProxy} />
-                </FieldGroup>
-                <Separator className="my-3" />
-                <p className="text-muted-foreground pt-4 pb-1 text-xs font-medium tracking-wider uppercase">Плагины</p>
-                <Alert className="my-2 border-amber-500/20 bg-amber-100 p-2.75 text-yellow-600 dark:bg-[#2a1f0d] dark:text-amber-400">
-                  <IconAlertCircle className="size-4.5" />
-                  <AlertDescription className="text-xs leading-4.25 tracking-wide text-yellow-600 dark:text-amber-400">
-                    Функционал данного раздела экспериментален и не проходит тщательное тестирование. Использовать на свой страх и риск.
-                  </AlertDescription>
-                </Alert>
-
-                <FieldGroup className="gap-0!">
-                  {pluginSettings.map((item, index) => (
-                    <Fragment key={item.id}>
-                      <SwitchSettingField item={item} checked={settings[item.key]} onToggleSetting={toggleSetting} />
-                      {index < pluginSettings.length - 1 && <Separator className="my-0" />}
-                    </Fragment>
-                  ))}
-                </FieldGroup>
-              </TabsContent>
-            </div>
-          </ScrollArea>
-        </Tabs>
+        <div className="-mx-(--rd-space-card) min-h-0 scrollbar-thin overflow-y-auto px-(--rd-space-card) pb-1">
+          {techMenu && tab === 'tech' ? tech : general}
+        </div>
       </DialogContent>
     </Dialog>
   )

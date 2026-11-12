@@ -10,7 +10,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Spinner } from '@/components/ui/spinner'
-import { IconAlertTriangle } from '@tabler/icons-react'
+import { TriangleAlert as IconAlertTriangle } from 'lucide-react'
 import { useState } from 'react'
 import { setIpv6 } from '../../lib/ipv6'
 import { useAppActions } from '../../lib/store'
@@ -42,9 +42,8 @@ export function Ipv6EnableDialog({ open, onClose }: { open: boolean; onClose: ()
           </AlertDialogMedia>
           <AlertDialogTitle>Включить IPv6 в домашней сети?</AlertDialogTitle>
           <AlertDialogDescription>
-            Устройства получат IPv6-адреса и будут открывать сервисы по IPv6. Многие VPN-серверы IPv6 не поддерживают, и часть
-            сервисов, например Instagram, может перестать открываться. Если что-то перестанет работать, отключите IPv6 кнопкой на
-            главной панели.
+            Устройства получат IPv6-адреса и будут открывать сервисы по IPv6. Многие VPN-серверы IPv6 не поддерживают, и часть сервисов,
+            например Instagram, может перестать открываться. Если что-то перестанет работать, отключите IPv6 кнопкой на главной панели.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

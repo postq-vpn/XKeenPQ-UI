@@ -9,7 +9,13 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
-import { IconAlertTriangle, IconChevronDown, IconChevronUp, IconFileUpload, IconRoute, IconX } from '@tabler/icons-react'
+import {
+  TriangleAlert as IconAlertTriangle,
+  ChevronDown as IconChevronDown,
+  ChevronUp as IconChevronUp,
+  FileUp as IconFileUpload,
+  X as IconX,
+} from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiCall, capitalize } from '../../lib/api'
 import { useAppContext, useModalContext } from '../../lib/store'
@@ -85,15 +91,7 @@ function pluralizeTargets(n: number): string {
   return 'целей'
 }
 
-function ResultRow({
-  result,
-  expanded,
-  onToggle,
-}: {
-  result: RouteTestResult
-  expanded: boolean
-  onToggle: () => void
-}) {
+function ResultRow({ result, expanded, onToggle }: { result: RouteTestResult; expanded: boolean; onToggle: () => void }) {
   const hasDetails = result.skipped.length > 0 || !!result.error
 
   return (
@@ -368,10 +366,7 @@ export function RouteTesterModal() {
         style={{ maxHeight: '95vh', maxWidth: '46rem', width: 'calc(100vw - 2rem)' }}
       >
         <DialogHeader className="shrink-0">
-          <DialogTitle className="flex items-center gap-2 pb-3">
-            <IconRoute size={24} className="text-chart-2" />
-            Проверка маршрута
-          </DialogTitle>
+          <DialogTitle className="flex items-center gap-2 pb-3">Проверка маршрута</DialogTitle>
           <DialogDescription>
             {loadingInit ? (
               'Загрузка данных ядра...'
@@ -552,12 +547,7 @@ export function RouteTesterModal() {
                   <div className="text-muted-foreground flex h-20 items-center justify-center text-xs">Нет результатов</div>
                 ) : (
                   filteredResults.map((r) => (
-                    <ResultRow
-                      key={r.target}
-                      result={r}
-                      expanded={expanded.has(r.target)}
-                      onToggle={() => toggleExpanded(r.target)}
-                    />
+                    <ResultRow key={r.target} result={r} expanded={expanded.has(r.target)} onToggle={() => toggleExpanded(r.target)} />
                   ))
                 )}
               </div>

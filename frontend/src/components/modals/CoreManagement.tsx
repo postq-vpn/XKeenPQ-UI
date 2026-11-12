@@ -1,7 +1,6 @@
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { IconCpu } from '@tabler/icons-react'
 import { useAppContext, useModalContext } from '../../lib/store'
 
 interface Props {
@@ -22,9 +21,7 @@ export function CoreManageModal({ onOpenUpdate }: Props) {
     <Dialog open={modals.showCoreManageModal} onOpenChange={(open) => !open && close()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 pb-3">
-            <IconCpu size={24} className="text-chart-2" /> Управление ядром
-          </DialogTitle>
+          <DialogTitle className="flex items-center gap-2 pb-3">Управление ядром</DialogTitle>
         </DialogHeader>
 
         <div className="flex items-center justify-between">

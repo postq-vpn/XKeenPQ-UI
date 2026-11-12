@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
-import { IconAlertTriangle, IconRefresh, IconShieldPlus } from '@tabler/icons-react'
+import { TriangleAlert as IconAlertTriangle, RefreshCw as IconRefresh, ShieldPlus as IconShieldPlus } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { apiCall } from '../../lib/api'
 import { useAppContext } from '../../lib/store'
@@ -95,16 +95,14 @@ export function PolicyWarning({ onRestarted }: { onRestarted: () => void }) {
   return (
     <div
       role="alert"
-      className="flex items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-400"
+      className="flex items-start gap-4 rounded-[var(--rd-radius-md)] bg-[var(--rd-warn-bg)] px-5 py-4 text-[15px] leading-5 text-[var(--rd-heading)]"
     >
-      <IconAlertTriangle className="mt-0.5 size-5 shrink-0" />
+      <IconAlertTriangle className="mt-0.5 size-5 shrink-0 text-[var(--rd-warn-icon)]" />
       {status.outdated ? (
         <div className="flex flex-col gap-1">
           <p className="font-semibold">Политика xkeen не применяется</p>
           <p>Её создали или изменили после запуска XKeen, поэтому устройства сейчас идут через VPN не по её настройкам.</p>
-          <p className="text-amber-800/80 dark:text-amber-400/80">
-            Перезапустите XKeen. Соединения прервутся на несколько секунд, логи Xray очистятся.
-          </p>
+          <p className="text-[var(--rd-body)]">Перезапустите XKeen. Соединения прервутся на несколько секунд, логи Xray очистятся.</p>
           <Button variant="outline" size="sm" className={buttonClass} disabled={busy} onClick={() => void restart()}>
             {busy ? <Spinner className="size-4" /> : <IconRefresh data-icon="inline-start" />}
             {busy ? 'Перезапускаю XKeen…' : 'Перезапустить XKeen'}
@@ -114,7 +112,7 @@ export function PolicyWarning({ onRestarted }: { onRestarted: () => void }) {
         <div className="flex flex-col gap-1">
           <p className="font-semibold">Политики xkeen нет, через VPN идут все устройства</p>
           <p>Панель может создать её для основной сети: провод и основной Wi-Fi пойдут через VPN, остальные сегменты — мимо.</p>
-          <p className="text-amber-800/80 dark:text-amber-400/80">Соединения прервутся на несколько секунд, логи Xray очистятся.</p>
+          <p className="text-[var(--rd-body)]">Соединения прервутся на несколько секунд, логи Xray очистятся.</p>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" className={buttonClass} disabled={busy} onClick={() => void create()}>
               {busy ? <Spinner className="size-4" /> : <IconShieldPlus data-icon="inline-start" />}

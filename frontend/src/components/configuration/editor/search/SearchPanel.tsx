@@ -2,13 +2,21 @@ import { findNext, findPrevious, getSearchQuery, replaceAll, replaceNext, select
 import type { SearchQuery } from '@codemirror/search'
 import { runScopeHandlers } from '@codemirror/view'
 import type { ViewUpdate } from '@codemirror/view'
-import { IconArrowDown, IconArrowUp, IconChevronRight, IconX } from '@tabler/icons-react'
+import { ArrowDown as IconArrowDown, ArrowUp as IconArrowUp, ChevronRight as IconChevronRight, X as IconX } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { MatchIndex, MAX_MATCHES, closeAndResetSearchPanel, replaceVisibleField, setReplaceVisible, updateQuery, jumpToNearestMatch } from './searchExtension'
+import {
+  MatchIndex,
+  MAX_MATCHES,
+  closeAndResetSearchPanel,
+  replaceVisibleField,
+  setReplaceVisible,
+  updateQuery,
+  jumpToNearestMatch,
+} from './searchExtension'
 import type { SearchPanelHandle } from './searchExtension'
 
 interface Props {
@@ -212,12 +220,7 @@ export function SearchPanel({ handle, replaceEnabled = true }: Props) {
     // Ctrl+H shows the replace row and moves focus into the replace field (same for
     // the macOS fallback Cmd/Ctrl+Alt+F). Handled here so focus follows even when the
     // row is already visible and no state change follows.
-    if (
-      replaceEnabled &&
-      mod &&
-      !event.shiftKey &&
-      ((event.code === 'KeyH' && !event.altKey) || (event.code === 'KeyF' && event.altKey))
-    ) {
+    if (replaceEnabled && mod && !event.shiftKey && ((event.code === 'KeyH' && !event.altKey) || (event.code === 'KeyF' && event.altKey))) {
       event.preventDefault()
       if (!state.replaceVisible) view.dispatch({ effects: setReplaceVisible.of(true) })
       // Already mounted: focus right away. Newly shown: the row isn't rendered yet,

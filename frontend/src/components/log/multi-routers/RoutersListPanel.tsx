@@ -1,7 +1,7 @@
 import { Checkbox } from '@/components/ui/checkbox'
 import { Empty, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Button } from '@/components/ui/button'
-import { IconCheck, IconLoader2, IconRouter, IconTrash, IconX } from '@tabler/icons-react'
+import { Check as IconCheck, LoaderCircle as IconLoader2, Router as IconRouter, Trash2 as IconTrash, X as IconX } from 'lucide-react'
 import { useState } from 'react'
 import { persistRouters, targetLabel } from '../../../lib/multi-routers/actions'
 import { LOCAL_ROUTER_ID, isRouterSelectable, routerId, routerLabel } from '../../../lib/multi-routers/model'
@@ -75,9 +75,7 @@ export function RoutersListPanel() {
           <EmptyMedia variant="icon" className="size-8.5">
             <IconRouter className="text-muted-foreground size-5" />
           </EmptyMedia>
-          <EmptyTitle className="text-ring text-[13px] font-normal tracking-normal">
-            Нет удалённых роутеров — нажмите «Добавить»
-          </EmptyTitle>
+          <EmptyTitle className="text-ring text-[13px] font-normal tracking-normal">Нет удалённых роутеров — нажмите «Добавить»</EmptyTitle>
         </Empty>
       ) : (
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">

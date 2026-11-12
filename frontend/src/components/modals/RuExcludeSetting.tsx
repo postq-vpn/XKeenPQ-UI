@@ -1,5 +1,4 @@
 import { Field, FieldContent, FieldDescription, FieldLabel } from '@/components/ui/field'
-import { Separator } from '@/components/ui/separator'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { useEffect, useState } from 'react'
@@ -51,12 +50,10 @@ export function RuExcludeSetting() {
 
   return (
     <>
-      <Separator className="my-3" />
-      <p className="text-muted-foreground pt-4 pb-1 text-xs font-medium tracking-wider uppercase">Маршрутизация</p>
-      <Field orientation="horizontal" className="px-0 py-3">
+      <Field orientation="horizontal">
         <FieldContent>
           <FieldLabel htmlFor="ru-exclude">Исключить российские IP-адреса из проксирования</FieldLabel>
-          <FieldDescription className="text-[13px]">
+          <FieldDescription>
             {!supported
               ? 'Установленная версия XKeen этого не умеет. Нужен XKeen 2.0 или новее'
               : busy

@@ -4,7 +4,6 @@ import { LoginForm, RemoteBlocked } from './components/auth/Login'
 import type { CodeMirrorRef } from './components/configuration/CodeMirror'
 import { ConfigPanel, isPanelManagedFile } from './components/configuration/ConfigPanel'
 
-import { LogDownloadMenu } from './components/log/LogDownloadMenu'
 import { LogPanel } from './components/log/LogPanel'
 import { ImportModal } from './components/modals/AddOutbound'
 import { CommentsWarningModal } from './components/modals/CommentsWarning'
@@ -14,16 +13,15 @@ import { RouteTesterModal } from './components/modals/RouteTester'
 import { SettingsModal } from './components/modals/Settings'
 import { TemplateModal } from './components/modals/Templates'
 import { UpdateModal } from './components/modals/Update'
-import { XraySubscriptionsModal } from './components/modals/XraySubscriptions'
-import { Ipv6Notice } from './components/status/Ipv6Notice'
+import { AppHeader } from './components/home/AppHeader'
+import { Home } from './components/home/Home'
 import { PolicyWarning } from './components/status/PolicyWarning'
 import { RoutingWarning } from './components/status/RoutingWarning'
-import { StatusBar } from './components/status/StatusBar'
 import { Toast } from './components/ui/toast'
 import { apiCall } from './lib/api'
 import { useLazyMount } from './lib/loader'
 import { cn } from './lib/utils'
-import { TechFilesMenu } from './components/configuration/TechFilesMenu'
+import { TechNav, TechNavMenu } from './components/home/TechNav'
 
 import { ONLINE_PING_INTERVAL_MS, LOCAL_ROUTER_ID, routerId } from './lib/multi-routers/model'
 import { applyRoutersFromSettings, refreshAllOnline } from './lib/multi-routers/actions'
@@ -94,12 +92,7 @@ const ModalManager = memo(function ModalManager({
       )}
       {mountUpdate && <UpdateModal onInstalled={onInstalled} />}
       {mountImport && (
-        <ImportModal
-          onGenerate={onGenerate}
-          onAddToConfig={onAddToConfig}
-          onSubscriptionSaved={onSubscriptionSaved}
-          welcome={welcome}
-        />
+        <ImportModal onGenerate={onGenerate} onAddToConfig={onAddToConfig} onSubscriptionSaved={onSubscriptionSaved} welcome={welcome} />
       )}
       {mountTemplate && <TemplateModal onImport={onImportTemplate} />}
       {mountSettings && <SettingsModal onOpenLog={onOpenLog} onOpenFile={onOpenFile} />}
@@ -315,15 +308,17 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     [setView]
   )
   const openLog = useCallback(() => setView('log'), [setView])
-  const techMenu = (
-    <TechFilesMenu
-      activeFile={view === 'files' ? activeFile : null}
-      logActive={view === 'log'}
-      onSelectServers={() => setView('servers')}
-      onSelectLog={() => setView('log')}
-      onSelectFile={openFile}
-    />
-  )
+  const goHome = useCallback(() => {
+    setView('servers')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [setView])
+  const techNavProps = {
+    activeFile: view === 'files' ? activeFile : null,
+    logActive: view === 'log',
+    onHome: goHome,
+    onSelectLog: () => setView('log'),
+    onSelectFile: openFile,
+  }
   const [subsReloadKey, setSubsReloadKey] = useState(0)
   const [welcome, setWelcome] = useState(false)
   const onSubscriptionSaved = useCallback(() => {
@@ -445,47 +440,58 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
   )
 
   return (
-    <div className="bg-muted dark:bg-background app-background flex min-h-dvh flex-col">
+    <div className="bg-background flex min-h-dvh flex-col">
       <main className="flex flex-1 flex-col">
-        <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-3 px-3 py-3">
-          <StatusBar
-            onOpenCoreManage={() => openModal('showCoreManageModal')}
+        <div className="mx-auto flex w-full max-w-[1280px] flex-1 flex-col gap-(--rd-space-grid) px-4 pt-(--rd-space-grid) pb-8 sm:px-6">
+          <AppHeader
             onOpenSettings={() => openModal('showSettingsModal')}
-            onRefreshStatus={() => void checkStatus()}
-            onOpenUpdate={(core: string) => {
+            onOpenUpdate={(core) => {
               dispatch({ type: 'SET_UPDATE_MODAL_CORE', core })
               openModal('showUpdateModal')
             }}
             onLogout={logout}
+            onHome={goHome}
           />
           <RoutingWarning reloadKey={subsReloadKey} />
           <PolicyWarning onRestarted={() => void checkStatus()} />
-          <Ipv6Notice />
           <div className={cn(view !== 'servers' && 'hidden')}>
-            <XraySubscriptionsModal
+            <Home
               reloadKey={subsReloadKey}
               onChanged={() => void refreshConfigsSilently()}
               onAddNew={() => openModal('showImportModal')}
-              headerExtra={<LogDownloadMenu />}
               onLoaded={onSubscriptionsLoaded}
+              onRefreshStatus={() => void checkStatus()}
             />
           </div>
-          <div className={cn('flex flex-col md:min-h-[70dvh]', view !== 'files' && 'hidden')}>
-            <ConfigPanel
-              editorRef={editorRef}
-              configActionsRef={configActionsRef}
-              onOpenImport={() => openModal('showImportModal')}
-              onOpenTemplate={() => openModal('showTemplateModal')}
-              onOpenGeoScan={() => openModal('showGeoScanModal')}
-              onOpenRouteTest={() => openModal('showRouteTestModal')}
-              onOpenBackups={() => openModal('showBackupsModal')}
-              onRefreshConfigs={refreshConfigsSilently}
-              headerExtra={techMenu}
-              onActiveFileChange={setActiveFile}
-            />
-          </div>
-          <div className={cn('flex flex-col md:min-h-[70dvh]', view !== 'log' && 'hidden')}>
-            <LogPanel asPage headerExtra={techMenu} />
+          {/* Техническое меню: навигация слева (на телефоне — список сверху), справа редактор файла или журнал. */}
+          <div
+            className={cn(
+              'grid grid-cols-1 items-start gap-(--rd-space-grid) lg:grid-cols-[260px_minmax(0,1fr)]',
+              view === 'servers' && 'hidden'
+            )}
+          >
+            <div className="hidden lg:sticky lg:top-[calc(56px+var(--rd-space-grid)+var(--rd-space-head))] lg:block">
+              <TechNav {...techNavProps} />
+            </div>
+            <div className="flex min-w-0 flex-col gap-(--rd-space-grid)">
+              <TechNavMenu {...techNavProps} />
+              <div className={cn('flex flex-col md:h-[calc(100dvh-180px)] md:min-h-[560px]', view !== 'files' && 'hidden')}>
+                <ConfigPanel
+                  editorRef={editorRef}
+                  configActionsRef={configActionsRef}
+                  onOpenImport={() => openModal('showImportModal')}
+                  onOpenTemplate={() => openModal('showTemplateModal')}
+                  onOpenGeoScan={() => openModal('showGeoScanModal')}
+                  onOpenRouteTest={() => openModal('showRouteTestModal')}
+                  onOpenBackups={() => openModal('showBackupsModal')}
+                  onRefreshConfigs={refreshConfigsSilently}
+                  onActiveFileChange={setActiveFile}
+                />
+              </div>
+              <div className={cn('flex flex-col md:h-[calc(100dvh-180px)] md:min-h-[560px]', view !== 'log' && 'hidden')}>
+                <LogPanel asPage />
+              </div>
+            </div>
           </div>
         </div>
       </main>

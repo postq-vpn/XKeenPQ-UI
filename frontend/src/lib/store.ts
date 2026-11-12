@@ -182,10 +182,9 @@ export function showToast(
   const dispatch = useStore.getState().dispatch
   const id = typeof message === 'string' ? Math.random().toString(36).slice(2) : (message.id ?? Math.random().toString(36).slice(2))
   if (typeof message !== 'string' && message.id) dispatch({ type: 'REMOVE_TOAST', id: message.id })
-  const defaultTitle = type === 'error' ? 'Ошибка' : type === 'warning' ? 'Предупреждение' : 'Успех'
   const toast: ToastMessage =
     typeof message === 'string'
-      ? { id, title: defaultTitle, body: message, type }
+      ? { id, title: '', body: message, type }
       : {
           id,
           title: message.title,

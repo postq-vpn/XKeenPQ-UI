@@ -7,7 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { IconSearch, IconServer, IconWorld, IconX } from '@tabler/icons-react'
+import { Server as IconServer, Globe as IconWorld, X as IconX } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAppContext, useModalContext } from '../../lib/store'
 import { cn, copyText } from '../../lib/utils'
@@ -128,10 +128,7 @@ export function GeoScanModal() {
         }}
       >
         <DialogHeader className="shrink-0">
-          <DialogTitle className="flex items-center gap-2 pb-3">
-            <IconSearch size={24} className="text-chart-2" />
-            Скан геофайлов
-          </DialogTitle>
+          <DialogTitle className="flex items-center gap-2 pb-3">Скан геофайлов</DialogTitle>
           <DialogDescription>Проверка наличия домена или IP-адреса в геофайлах</DialogDescription>
         </DialogHeader>
 
@@ -250,7 +247,9 @@ export function GeoScanModal() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !scanning && scan()}
-            placeholder={geoType === 'ip' ? 'IP-Адрес или полный домен, например 1.1.1.1 или www.google.com' : 'Полный домен, например www.google.com'}
+            placeholder={
+              geoType === 'ip' ? 'IP-Адрес или полный домен, например 1.1.1.1 или www.google.com' : 'Полный домен, например www.google.com'
+            }
           />
           <InputGroupAddon align="inline-end">
             {input && (

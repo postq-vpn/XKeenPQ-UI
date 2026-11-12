@@ -4,7 +4,7 @@ import { Checkbox as CheckboxPrimitive } from '@base-ui/react/checkbox'
 import * as React from 'react'
 
 import { cn } from '@/lib/utils'
-import { IconCheck } from '@tabler/icons-react'
+import { Check as IconCheck } from 'lucide-react'
 
 function Checkbox({ className, ...props }: React.ComponentProps<typeof CheckboxPrimitive.Root>) {
   return (

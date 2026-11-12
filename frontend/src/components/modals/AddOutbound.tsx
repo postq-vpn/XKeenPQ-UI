@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { copyText } from '@/lib/utils'
-import { IconCheck, IconCopy, IconLink, IconPlus, IconX } from '@tabler/icons-react'
+import { Check as IconCheck, Copy as IconCopy, Plus as IconPlus, X as IconX } from 'lucide-react'
 import { useState } from 'react'
 import { apiCall } from '../../lib/api'
 import { useAppContext, useModalContext } from '../../lib/store'
@@ -152,9 +152,7 @@ export function ImportModal({ onGenerate, onAddToConfig, onSubscriptionSaved, we
       <Dialog open={modals.showImportModal} onOpenChange={(open) => !open && close()}>
         <DialogContent className="flex max-h-[90dvh] w-auto! max-w-[min(90vw,900px)]! min-w-[min(90vw,480px)]! flex-col overflow-hidden">
           <DialogHeader className="shrink-0 pb-1">
-            <DialogTitle className="flex items-center gap-2 pb-2">
-              <IconLink size={24} className="text-chart-2" /> {welcome ? 'Добавьте подписку' : 'Добавить подключение'}
-            </DialogTitle>
+            <DialogTitle className="pb-1">{welcome ? 'Добавьте подписку' : 'Добавить подключение'}</DialogTitle>
             <DialogDescription>
               {welcome
                 ? 'Чтобы начать, вставьте ссылку на подписку https:// от вашего VPN-провайдера — серверы загрузятся и будут обновляться сами'
@@ -236,9 +234,9 @@ export function ImportModal({ onGenerate, onAddToConfig, onSubscriptionSaved, we
                 </InputGroupAddon>
               </InputGroup>
 
-              {addError && <p className="text-destructive text-xs break-words">{addError}</p>}
+              {addError && <p className="text-[14px] break-words text-[var(--rd-error-text)]">{addError}</p>}
 
-              <Button onClick={generate} disabled={!isValidUri || adding} className="w-full">
+              <button type="button" onClick={generate} disabled={!isValidUri || adding} className="rd-btn w-full">
                 {adding ? (
                   <>
                     <Spinner className="size-4" /> Загружаю подписку…
@@ -248,7 +246,7 @@ export function ImportModal({ onGenerate, onAddToConfig, onSubscriptionSaved, we
                 ) : (
                   'Сгенерировать'
                 )}
-              </Button>
+              </button>
             </div>
           </div>
         </DialogContent>

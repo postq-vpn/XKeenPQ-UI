@@ -436,7 +436,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorRef, Props>(({ onContentCha
   }, [createExtensions, isDarkTheme])
 
   return (
-    <div className="border-border bg-input-background absolute inset-4 overflow-hidden rounded-xl border">
+    <div className="absolute inset-0 overflow-hidden">
       <div ref={containerRef} className="h-full w-full" />
       {searchPanel && createPortal(<SearchPanel handle={searchPanel} />, searchPanel.dom)}
     </div>

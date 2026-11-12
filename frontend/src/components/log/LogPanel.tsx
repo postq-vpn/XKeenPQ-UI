@@ -1,20 +1,19 @@
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Empty, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
-  IconChevronDown,
-  IconDownload,
-  IconFile,
-  IconFilter,
-  IconMaximize,
-  IconMinimize,
-  IconPlus,
-  IconTrash,
-  IconX,
-} from '@tabler/icons-react'
+  ChevronDown as IconChevronDown,
+  Download as IconDownload,
+  File as IconFile,
+  Filter as IconFilter,
+  Maximize2 as IconMaximize,
+  Minimize2 as IconMinimize,
+  Plus as IconPlus,
+  Trash2 as IconTrash,
+  X as IconX,
+} from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { LOCAL_ROUTER_ID, isRouterSelectable, routerId } from '../../lib/multi-routers/model'
@@ -333,7 +332,7 @@ export function LogPanel({ asPage, headerExtra }: LogPanelProps = {}) {
         <div
           ref={containerRef}
           className={cn(
-            'border-border bg-card flex flex-col overflow-hidden rounded-xl border',
+            'rd-card flex flex-col overflow-hidden',
             isFullscreen ? 'fixed inset-x-3 bottom-3 z-50 shadow-2xl sm:inset-x-4 sm:mx-auto sm:max-w-400' : 'absolute inset-0 z-10 w-full'
           )}
           style={{
@@ -345,23 +344,23 @@ export function LogPanel({ asPage, headerExtra }: LogPanelProps = {}) {
             onValueChange={(v) => setPanelTab(v as 'journal' | 'routers')}
             className="flex min-h-0 flex-1 flex-col gap-0"
           >
-            <div className="flex shrink-0 flex-col justify-between gap-3 px-4 pt-4 sm:flex-row sm:items-center">
+            <div className="flex shrink-0 flex-col justify-between gap-(--rd-space-group) sm:flex-row sm:items-center">
               {multiRouter ? (
                 <TabsList variant="line" className="h-auto gap-3 bg-transparent p-0">
-                  <TabsTrigger value="journal" className="p-0 text-lg font-semibold">
-                    Журнал
+                  <TabsTrigger value="journal" className="rd-title p-0">
+                    Журнал Xray
                   </TabsTrigger>
-                  <TabsTrigger value="routers" className="p-0 text-lg font-semibold">
+                  <TabsTrigger value="routers" className="rd-title p-0">
                     Роутеры
                   </TabsTrigger>
                 </TabsList>
               ) : (
-                <h2 className="text-lg font-semibold select-none">Журнал</h2>
+                <h2 className="rd-title select-none">Журнал Xray</h2>
               )}
               {panelTab === 'journal' && (
-                <div className="flex flex-wrap items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-(--rd-space-item)">
                   <div className="relative flex min-w-30 flex-1 items-center sm:flex-none">
-                    <InputGroup className="w-40">
+                    <InputGroup className="w-full sm:w-52">
                       <InputGroupInput
                         placeholder="Фильтр"
                         className="right-2"
@@ -389,22 +388,26 @@ export function LogPanel({ asPage, headerExtra }: LogPanelProps = {}) {
                       </InputGroupAddon>
                     </InputGroup>
                   </div>
-                  <Select value={currentFile} onValueChange={switchFile}>
-                    <SelectTrigger popper className="md:w-33">
-                      <SelectValue />
-                    </SelectTrigger>
-
-                    <SelectContent position="popper">
-                      <SelectGroup>
-                        {LOG_FILES.map((f) => (
-                          <SelectItem key={f} value={f} className="text-sm">
-                            {f}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <div className="ml-auto flex items-center gap-1.5 sm:ml-0">
+                  <div role="tablist" aria-label="Файл журнала" className="flex h-11 gap-1 rounded-[12px] bg-[var(--rd-field)] p-1">
+                    {LOG_FILES.map((f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        role="tab"
+                        aria-selected={currentFile === f}
+                        onClick={() => currentFile !== f && switchFile(f)}
+                        className={cn(
+                          'cursor-pointer rounded-[9px] px-3 text-[15px] font-medium transition-colors',
+                          currentFile === f
+                            ? 'bg-[var(--rd-surface)] text-[var(--rd-heading)] shadow-[0_2px_10px_rgba(0,0,0,0.06)] dark:bg-[var(--rd-chip-hover)]'
+                            : 'text-[var(--rd-caption)] hover:text-[var(--rd-heading)]'
+                        )}
+                      >
+                        {f.replace('.log', '')}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="ml-auto flex items-center gap-(--rd-space-item) sm:ml-0">
                     <Tooltip>
                       <TooltipTrigger
                         render={
@@ -474,22 +477,22 @@ export function LogPanel({ asPage, headerExtra }: LogPanelProps = {}) {
             <TabsContent
               value="journal"
               forceMount={multiRouter || undefined}
-              className="relative mt-0 min-h-0 flex-1 data-[state=inactive]:hidden"
+              className="relative mt-(--rd-space-group) min-h-0 flex-1 data-[state=inactive]:hidden"
             >
-              <div className="bg-input-background absolute inset-4 overflow-hidden rounded-md border">
+              <div className="absolute inset-0 overflow-hidden rounded-[var(--rd-radius-sm)] bg-[var(--rd-field)]">
                 {isEmpty && (
                   <Empty className="h-full gap-0">
                     <EmptyMedia variant="icon" className="size-8.5">
                       <IconFile className="text-muted-foreground size-5" />
                     </EmptyMedia>
-                    <EmptyTitle className="text-ring font-mono text-[13px] tracking-normal">Журнал пуст</EmptyTitle>
+                    <EmptyTitle className="rd-meta">Журнал пуст</EmptyTitle>
                   </Empty>
                 )}
                 <div
                   ref={logRef}
                   tabIndex={0}
                   className={cn(
-                    'text-foreground scrollbar-width:thin h-full overflow-y-auto px-3 py-1.5 font-mono text-[13px] leading-[1.6] wrap-anywhere contain-content',
+                    'scrollbar-width:thin h-full overflow-y-auto px-4 py-3 font-mono text-[13px] leading-[1.7] wrap-anywhere text-[var(--rd-heading)] contain-content',
                     isAnimating && 'pointer-events-none'
                   )}
                   onScroll={handleScroll}
@@ -501,7 +504,7 @@ export function LogPanel({ asPage, headerExtra }: LogPanelProps = {}) {
                 <Button
                   variant="outline"
                   size="icon-sm"
-                  className="bg-background/80 absolute right-8 bottom-8 z-10 shadow-lg backdrop-blur!"
+                  className="absolute right-4 bottom-4 z-10 rounded-full bg-[var(--rd-surface)] shadow-[0_8px_24px_rgba(0,0,0,0.15)]"
                   onClick={handleScrollToBottom}
                 >
                   <IconChevronDown size={14} />
@@ -509,9 +512,9 @@ export function LogPanel({ asPage, headerExtra }: LogPanelProps = {}) {
               )}
             </TabsContent>
 
-            <TabsContent value="routers" className="relative mt-0 min-h-0 flex-1">
+            <TabsContent value="routers" className="relative mt-(--rd-space-group) min-h-0 flex-1">
               {multiRouter && (
-                <div className="bg-input-background absolute inset-4 overflow-hidden rounded-md border">
+                <div className="absolute inset-0 overflow-hidden rounded-[var(--rd-radius-sm)] bg-[var(--rd-field)]">
                   <RoutersListPanel />
                 </div>
               )}

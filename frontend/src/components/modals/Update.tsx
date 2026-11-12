@@ -6,7 +6,7 @@ import { Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle } from '@/comp
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Spinner } from '@/components/ui/spinner'
-import { IconDownload, IconPlaylistX, IconRefresh } from '@tabler/icons-react'
+import { ListX as IconPlaylistX, RefreshCw as IconRefresh } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -24,7 +24,7 @@ const CORE_REPOS = {
 } as const
 
 const mdClass = `
-  text-xs text-muted-foreground leading-relaxed
+  text-[14px] text-[var(--rd-body)] leading-[21px]
   [&_h1]:text-sm [&_h1]:font-semibold [&_h1]:text-foreground [&_h1]:mb-2 [&_h1]:mt-3 [&_h1:first-child]:mt-0
   [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:text-foreground [&_h2]:mb-1.5 [&_h2]:mt-3 [&_h2:first-child]:mt-0
   [&_h3]:text-xs [&_h3]:font-semibold [&_h3]:text-foreground [&_h3]:mb-1 [&_h3]:mt-2 [&_h3:first-child]:mt-0
@@ -34,7 +34,7 @@ const mdClass = `
   [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-[10px] [&_code]:font-mono [&_code]:wrap-anywhere
   [&_pre]:bg-muted [&_pre]:p-2 [&_pre]:rounded [&_pre]:mb-2 [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:max-w-full
   [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:break-normal
-  [&_a]:text-blue-400 [&_a]:underline [&_a]:underline-offset-2 [&_a]:wrap-anywhere
+  [&_a]:text-[var(--rd-action)] [&_a]:underline [&_a]:underline-offset-2 [&_a]:wrap-anywhere
   [&_strong]:text-foreground [&_strong]:font-semibold
   [&_hr]:border-ring/20 [&_hr]:my-2
   [&_blockquote]:border-l-2 [&_blockquote]:border-ring/40 [&_blockquote]:pl-3 [&_blockquote]:italic
@@ -47,7 +47,7 @@ const fetchWithTimeout = (url: string, init?: RequestInit) => {
 }
 
 export function UpdateModal({ onInstalled }: { onInstalled: () => void }) {
-  const { dispatch, showToast } = useAppContext()
+  const { state, dispatch, showToast } = useAppContext()
   const { modals } = useModalContext()
   const backupCore = useSettings((s) => s.backupCore)
   const githubProxies = useSettings((s) => s.githubProxies)
@@ -60,14 +60,14 @@ export function UpdateModal({ onInstalled }: { onInstalled: () => void }) {
   const [loading, setLoading] = useState(true)
   const [installing, setInstalling] = useState(false)
 
-  const coreLabel = updateModalCore === 'self' ? 'XKeen UI' : capitalize(updateModalCore)
-  const repo =
-    updateModalCore === 'self'
-      ? CORE_REPOS.self
-      : updateModalCore === 'xray'
-        ? repoSlug(xrayRepo) || CORE_REPOS.xray
-        : ''
+  const coreLabel = updateModalCore === 'self' ? 'панель' : capitalize(updateModalCore)
+  const repo = updateModalCore === 'self' ? CORE_REPOS.self : updateModalCore === 'xray' ? repoSlug(xrayRepo) || CORE_REPOS.xray : ''
   const close = () => dispatch({ type: 'SHOW_MODAL', modal: 'showUpdateModal', show: false })
+  const installedVersion = (updateModalCore === 'self' ? state.version : state.coreVersions.xray || '').replace(/^v/i, '')
+  const tabs = [
+    { core: 'self', label: 'Панель', version: state.version, outdated: state.isOutdatedUI },
+    { core: 'xray', label: 'Xray', version: state.coreVersions.xray, outdated: state.isOutdatedCore },
+  ]
 
   useEffect(() => {
     if (modals.showUpdateModal) fetchReleases()
@@ -203,50 +203,54 @@ export function UpdateModal({ onInstalled }: { onInstalled: () => void }) {
 
   return (
     <Dialog open={modals.showUpdateModal} onOpenChange={(open) => !open && close()}>
-      <DialogContent className="w-full max-w-[95vw]! p-0! md:w-187.5">
-        <div className="flex max-h-[90dvh] flex-col gap-4 overflow-hidden p-6">
+      <DialogContent className="w-full max-w-[95vw]! p-0! md:w-170">
+        <div className="flex max-h-[90dvh] flex-col gap-5 overflow-hidden p-6 sm:p-8">
           <DialogHeader className="shrink-0">
-            <DialogTitle className="flex items-center gap-2 pr-8 pb-3">
-              <IconDownload size={24} className="text-chart-2" />
-              Обновление {coreLabel}
-            </DialogTitle>
+            <DialogTitle className="pb-4">Обновления</DialogTitle>
 
-            <DialogDescription
-              className="flex w-full items-center justify-between"
-              render={
-                <div>
-                  Выберите версию
-                  <span className="flex items-center gap-1.5">
-                    {repo && (
-                      <Badge variant="outline" className="border-ring/40 bg-muted/50 h-5 rounded-full px-2 text-xs font-medium">
-                        {repo}
-                      </Badge>
+            <div role="tablist" aria-label="Что обновить" className="grid grid-cols-2 gap-1 rounded-[14px] bg-[var(--rd-field)] p-1">
+              {tabs.map((t) => {
+                const active = updateModalCore === t.core
+                return (
+                  <button
+                    key={t.core}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    disabled={installing}
+                    onClick={() => !active && dispatch({ type: 'SET_UPDATE_MODAL_CORE', core: t.core })}
+                    className={cn(
+                      'flex min-h-14 cursor-pointer flex-col items-start justify-center gap-0.5 rounded-[10px] px-4 py-2 text-left transition-colors',
+                      active
+                        ? 'bg-[var(--rd-surface)] shadow-[0_2px_10px_rgba(0,0,0,0.06)] dark:bg-[var(--rd-chip-hover)]'
+                        : 'hover:bg-[var(--rd-chip-hover)]'
                     )}
-                    {!loading && source && (
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          'h-5 rounded-full border-none px-2 text-xs font-medium',
-                          source === 'github' ? 'bg-green-500/10 text-green-400' : 'bg-orange-500/10 text-orange-400'
-                        )}
-                      >
-                        {source === 'github' ? 'GitHub' : 'jsDelivr'}
-                      </Badge>
-                    )}
-                  </span>
-                </div>
-              }
-            />
+                  >
+                    <span className="flex items-center gap-2 text-[16px] leading-5 font-medium text-[var(--rd-heading)]">
+                      {t.label}
+                      {t.outdated && <span className="size-2 rounded-full bg-[var(--rd-action)]" aria-label="есть обновление" />}
+                    </span>
+                    <span className="text-[13px] leading-4 text-[var(--rd-caption)]">
+                      {t.version ? `установлена ${t.version.replace(/^v?/, 'v')}` : 'не установлена'}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <DialogDescription className="pt-4">
+              {loading ? 'Загружаю список версий…' : `Версии с ${source === 'jsdelivr' ? 'jsDelivr' : 'GitHub'}: ${repo}`}
+            </DialogDescription>
           </DialogHeader>
 
-          <ScrollArea className="h-125 min-h-0" hideScrollbar>
+          <ScrollArea className="h-[min(52dvh,480px)] min-h-0" hideScrollbar>
             {loading ? (
-              <div className="text-muted-foreground flex min-h-125 flex-col items-center justify-center gap-3">
-                <Spinner className="text-chart-2 size-10" />
+              <div className="text-muted-foreground flex min-h-[min(52dvh,480px)] flex-col items-center justify-center gap-3">
+                <Spinner className="size-8 text-[var(--rd-action)]" />
                 <span className="text-sm tracking-normal">Загрузка релизов...</span>
               </div>
             ) : releases.length === 0 ? (
-              <Empty className="min-h-125 border-none">
+              <Empty className="min-h-[min(52dvh,480px)] border-none">
                 <EmptyHeader>
                   <EmptyMedia variant="icon">
                     <IconPlaylistX className="size-8" />
@@ -275,27 +279,40 @@ export function UpdateModal({ onInstalled }: { onInstalled: () => void }) {
                       key={release.version}
                       value={release.version}
                       className={cn(
-                        'rounded-lg border transition-all',
+                        'rounded-[var(--rd-radius-sm)] border-2 transition-colors',
                         checked
-                          ? 'border-blue-400 bg-linear-to-b from-blue-500/25 to-blue-500/15'
-                          : 'border-ring/40 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--color-blue-500)_5%,transparent)_0%,transparent_50%)] hover:border-blue-400 hover:bg-linear-to-b hover:from-blue-500/15 hover:to-blue-500/5'
+                          ? 'border-[var(--rd-action)] bg-[var(--rd-help)] dark:bg-[var(--rd-field)]'
+                          : 'border-transparent bg-[var(--rd-field)] hover:bg-[var(--rd-chip-hover)]'
                       )}
                     >
                       <AccordionTrigger
-                        className="min-w-0 overflow-hidden px-3 py-0 hover:no-underline *:data-[slot=accordion-trigger-icon]:hidden"
+                        className="min-w-0 overflow-hidden px-4 py-0 hover:no-underline *:data-[slot=accordion-trigger-icon]:hidden"
                         onClick={() => setSelectedVersion(release.version)}
                       >
-                        <div className="flex w-full min-w-0 items-center justify-between gap-3 py-2.5">
+                        <div className="flex w-full min-w-0 items-center justify-between gap-3 py-3.5">
                           <div className="flex min-w-0 flex-1 flex-col gap-2">
                             <div className="flex items-center gap-2">
-                              <span className="truncate text-sm font-medium">{release.name || release.version}</span>
+                              <span className="truncate text-[16px] font-medium">{release.name || release.version}</span>
+                              {release.version === installedVersion && (
+                                <span className="shrink-0 text-[13px] text-[var(--rd-caption)]">установлена</span>
+                              )}
                               {release.is_prerelease && (
-                                <Badge variant="outline" className="rounded-sm border-none bg-amber-500/10 px-2 text-xs text-amber-400">
+                                <Badge
+                                  variant="outline"
+                                  className="rounded-md border-none bg-[var(--rd-warn-bg)] px-2 text-xs text-[var(--rd-warn-text)]"
+                                >
                                   Pre-Release
                                 </Badge>
                               )}
                             </div>
-                            <span className="text-muted-foreground text-xs">{release.published_at}</span>
+                            <span className="text-[13px] text-[var(--rd-caption)]">
+                              {release.published_at &&
+                                new Date(release.published_at).toLocaleDateString('ru-RU', {
+                                  day: 'numeric',
+                                  month: 'long',
+                                  year: 'numeric',
+                                })}
+                            </span>
                           </div>
                           <div
                             className={cn(
@@ -308,8 +325,8 @@ export function UpdateModal({ onInstalled }: { onInstalled: () => void }) {
                         </div>
                       </AccordionTrigger>
                       {release.body && (
-                        <AccordionContent className="px-3 pt-0 pb-3">
-                          <div className="border-ring/20 border-t pt-2.5">
+                        <AccordionContent className="px-4 pt-0 pb-4">
+                          <div className="border-t border-[var(--rd-border)] pt-3">
                             <div className="max-h-48 w-full scrollbar-thin overflow-x-hidden overflow-y-auto">
                               <div className={cn(mdClass, 'min-w-0')}>
                                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: () => null }}>
@@ -333,10 +350,10 @@ export function UpdateModal({ onInstalled }: { onInstalled: () => void }) {
                       key={release.version}
                       htmlFor={release.version}
                       className={cn(
-                        'flex cursor-pointer items-start justify-between gap-3 rounded-lg border px-3 py-2.5 transition-all',
+                        'flex cursor-pointer items-start justify-between gap-3 rounded-[var(--rd-radius-sm)] border-2 px-3 py-2.5 transition-colors',
                         checked
-                          ? 'border-blue-400 bg-linear-to-b from-blue-500/25 to-blue-500/15'
-                          : 'border-ring/40 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--color-blue-500)_5%,transparent)_0%,transparent_50%)] from-blue-500/15 to-blue-500/5 hover:border-blue-400 hover:bg-linear-to-b'
+                          ? 'border-[var(--rd-action)] bg-[var(--rd-help)] dark:bg-[var(--rd-field)]'
+                          : 'border-transparent bg-[var(--rd-field)] hover:bg-[var(--rd-chip-hover)]'
                       )}
                     >
                       <span className="truncate text-sm font-medium">{release.name || release.version}</span>
@@ -349,9 +366,13 @@ export function UpdateModal({ onInstalled }: { onInstalled: () => void }) {
           </ScrollArea>
 
           <DialogFooter className="shrink-0">
-            <Button onClick={install} disabled={!selectedVersion || installing} className="w-full">
-              {installing ? 'Установка...' : 'Установить'}
-            </Button>
+            <button type="button" onClick={install} disabled={!selectedVersion || installing} className="rd-btn w-full">
+              {installing
+                ? 'Устанавливаю…'
+                : selectedVersion === installedVersion
+                  ? `Переустановить ${coreLabel} ${selectedVersion}`
+                  : `Установить ${coreLabel} ${selectedVersion}`}
+            </button>
           </DialogFooter>
         </div>
       </DialogContent>

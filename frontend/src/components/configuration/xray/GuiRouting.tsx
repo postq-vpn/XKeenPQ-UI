@@ -1,7 +1,7 @@
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { IconCheck, IconGripVertical, IconPencil, IconPlus, IconX } from '@tabler/icons-react'
+import { Check as IconCheck, GripVertical as IconGripVertical, Pencil as IconPencil, Plus as IconPlus, X as IconX } from 'lucide-react'
 import { forwardRef, memo, useCallback, useEffect, useRef, useState } from 'react'
 import { apiCall } from '../../../lib/api'
 import { useAppActions, useCoreRuntimeState, useSettings } from '../../../lib/store'

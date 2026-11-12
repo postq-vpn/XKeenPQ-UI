@@ -3,7 +3,12 @@ import type { SelectRootProps, SelectRootChangeEventDetails } from '@base-ui/rea
 import * as React from 'react'
 
 import { cn } from '@/lib/utils'
-import { IconCheck, IconChevronDown, IconChevronUp, IconSelector } from '@tabler/icons-react'
+import {
+  Check as IconCheck,
+  ChevronDown as IconChevronDown,
+  ChevronUp as IconChevronUp,
+  ChevronsUpDown as IconSelector,
+} from 'lucide-react'
 
 function Select({
   onValueChange,
@@ -50,7 +55,7 @@ function SelectTrigger({
       data-size={size}
       data-popper={popper ? '' : undefined}
       className={cn(
-        "bg-input-background hover:bg-input-background-hover data-popper:data-popup-open:hover:bg-input-background data-popper:data-popup-open:[box-shadow:0_0_0_3px_color-mix(in_srgb,var(--color-blue-500)_15%,transparent)] flex w-fit cursor-pointer items-center justify-between gap-1.5 rounded-md border py-2 pr-2 pl-2.5 text-sm whitespace-nowrap shadow-xs transition-[background-color,border-color,box-shadow] duration-200 outline-none disabled:cursor-not-allowed disabled:opacity-50 data-popper:data-popup-open:border-blue-400 data-[size=default]:h-9 data-[size=sm]:h-8 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "flex w-fit cursor-pointer items-center justify-between gap-1.5 rounded-[12px] border-2 border-transparent bg-[var(--rd-field)] py-2 pr-2.5 pl-3.5 text-[15px] whitespace-nowrap text-[var(--rd-heading)] transition-[background-color,border-color] duration-200 outline-none hover:bg-[var(--rd-chip-hover)] disabled:cursor-not-allowed disabled:opacity-50 data-popup-open:border-[var(--rd-action)] data-[size=default]:h-11 data-[size=sm]:h-10 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}
@@ -68,9 +73,9 @@ function SelectTrigger({
 function SelectContent({
   className,
   children,
-  position = 'item-aligned',
-  align = 'center',
-  sideOffset = 4,
+  position = 'popper',
+  align = 'start',
+  sideOffset = 6,
   side,
   alignOffset,
   ...props
@@ -94,7 +99,7 @@ function SelectContent({
         <SelectPrimitive.Popup
           data-slot="select-content"
           className={cn(
-            'border-border bg-input-background text-popover-foreground relative z-50 max-h-(--available-height) min-w-(--anchor-width) origin-(--transform-origin) overflow-hidden rounded-md border shadow-md',
+            'border-border text-popover-foreground relative z-50 max-h-(--available-height) min-w-(--anchor-width) origin-(--transform-origin) overflow-hidden rounded-[12px] border bg-[var(--rd-surface)] p-1 shadow-[0_8px_32px_rgba(0,0,0,0.14)]',
             position === 'popper'
               ? 'data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 data-[side=bottom]:data-open:slide-in-from-top-2 data-[side=bottom]:data-closed:slide-out-to-top-2 data-[side=top]:data-open:slide-in-from-bottom-2 data-[side=top]:data-closed:slide-out-to-bottom-2 duration-200'
               : 'transition duration-200 ease-out data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0',
@@ -126,7 +131,7 @@ function SelectItem({ className, children, ...props }: React.ComponentProps<type
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "relative flex w-full items-center gap-2 rounded-sm py-1.25 pr-8 pl-1.5 text-sm outline-hidden select-none focus:bg-(--menu-active-bg) focus:font-semibold focus:text-blue-400 not-data-[variant=destructive]:focus:**:text-blue-400 data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-(--menu-active-bg) [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+        "relative flex w-full cursor-pointer items-center gap-2 rounded-[8px] py-2 pr-8 pl-2.5 text-[15px] outline-hidden select-none focus:bg-(--menu-active-bg) data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-(--menu-active-bg) [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
         className
       )}
       {...props}

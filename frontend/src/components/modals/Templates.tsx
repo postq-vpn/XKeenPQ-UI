@@ -4,7 +4,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Spinner } from '@/components/ui/spinner'
-import { IconFileText } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 import { capitalize } from '../../lib/api'
 import { useAppContext, useModalContext } from '../../lib/store'
@@ -69,7 +68,6 @@ export function TemplateModal({ onImport }: { onImport: (url: string) => Promise
       <DialogContent className="flex max-h-[80vh] max-w-140! flex-col overflow-hidden">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2 pr-8 pb-3">
-            <IconFileText size={24} className="text-chart-2" />
             Импорт шаблона
             <span className="text-muted-foreground text-sm font-normal"></span>
           </DialogTitle>

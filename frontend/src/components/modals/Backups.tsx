@@ -22,7 +22,15 @@ import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { apiCall } from '@/lib/api'
 import { useAppContext } from '@/lib/store'
-import { IconAlertTriangle, IconBox, IconBoxOff, IconChevronDown, IconPencil, IconPlus, IconRestore, IconTrash } from '@tabler/icons-react'
+import {
+  TriangleAlert as IconAlertTriangle,
+  ArchiveX as IconBoxOff,
+  ChevronDown as IconChevronDown,
+  Pencil as IconPencil,
+  Plus as IconPlus,
+  RotateCcw as IconRestore,
+  Trash2 as IconTrash,
+} from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 type BackupContent = 'xkeen' | 'xkeen-ui' | 'xray'
@@ -266,9 +274,7 @@ export function BackupsModal({ open, onOpenChange, onRefreshConfigs }: Props) {
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="flex h-[70dvh]! max-w-2xl! flex-col overflow-hidden p-4 sm:p-5 md:h-128!">
           <DialogHeader className="pr-10">
-            <DialogTitle className="flex items-center gap-2">
-              <IconBox size={27} className="text-chart-2" /> Бэкапы конфигураций
-            </DialogTitle>
+            <DialogTitle className="flex items-center gap-2">Бэкапы конфигураций</DialogTitle>
             <DialogDescription>
               Сохранение конфигураций XKeen, XKeen-UI и Xray. Восстановление перезапишет текущие конфигурации.
             </DialogDescription>
@@ -320,7 +326,7 @@ export function BackupsModal({ open, onOpenChange, onRefreshConfigs }: Props) {
                             <div className="flex items-center gap-2">
                               <input
                                 autoFocus
-                                className="bg-input-background flex h-8 min-w-0 flex-1 rounded-md border px-2 text-sm col-span-full"
+                                className="bg-input-background col-span-full flex h-8 min-w-0 flex-1 rounded-md border px-2 text-sm"
                                 value={renameValue}
                                 onChange={(e) => setRenameValue(e.target.value)}
                                 onKeyDown={(e) => {
@@ -340,18 +346,20 @@ export function BackupsModal({ open, onOpenChange, onRefreshConfigs }: Props) {
                               {renamingName !== backup.name && (
                                 <TooltipProvider delayDuration={400}>
                                   <Tooltip>
-                                    <TooltipTrigger render={
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="text-muted-foreground hover:text-foreground -ml-1 size-6"
-                                        onClick={() => startRename(backup.name)}
-                                        disabled={pendingAction !== null}
-                                        aria-label={`Переименовать ${backup.name}`}
-                                      >
-                                        <IconPencil className="size-3.5" />
-                                      </Button>
-                                    } />
+                                    <TooltipTrigger
+                                      render={
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="text-muted-foreground hover:text-foreground -ml-1 size-6"
+                                          onClick={() => startRename(backup.name)}
+                                          disabled={pendingAction !== null}
+                                          aria-label={`Переименовать ${backup.name}`}
+                                        >
+                                          <IconPencil className="size-3.5" />
+                                        </Button>
+                                      }
+                                    />
                                     <TooltipContent>Переименовать</TooltipContent>
                                   </Tooltip>
                                 </TooltipProvider>
@@ -386,7 +394,13 @@ export function BackupsModal({ open, onOpenChange, onRefreshConfigs }: Props) {
                               Восстановить
                             </Button>
                             <DropdownMenu modal={false}>
-                              <DropdownMenuTrigger render={<Button variant="outline" size="sm" className="px-2" disabled={isRestoreDisabled || contents.length <= 1}><IconChevronDown /></Button>} />
+                              <DropdownMenuTrigger
+                                render={
+                                  <Button variant="outline" size="sm" className="px-2" disabled={isRestoreDisabled || contents.length <= 1}>
+                                    <IconChevronDown />
+                                  </Button>
+                                }
+                              />
                               <DropdownMenuContent align="end" className="min-w-40">
                                 {contents.map((content) => (
                                   <DropdownMenuItem
@@ -519,12 +533,17 @@ function KeepLatestBackupsToggle({
       <Checkbox id={id} checked={checked} disabled={disabled} onCheckedChange={(value) => onCheckedChange(value === true)} />
       <TooltipProvider delayDuration={400}>
         <Tooltip>
-          <TooltipTrigger render={
-            <Label htmlFor={id} className="text-muted-foreground cursor-pointer text-xs font-normal">
-              Оставлять {MAX_BACKUPS_TO_KEEP} бэкапов
-            </Label>
-          } />
-          <TooltipContent>При создании бэкапа удалять все<br /> старые бэкапы, кроме {MAX_BACKUPS_TO_KEEP} последних</TooltipContent>
+          <TooltipTrigger
+            render={
+              <Label htmlFor={id} className="text-muted-foreground cursor-pointer text-xs font-normal">
+                Оставлять {MAX_BACKUPS_TO_KEEP} бэкапов
+              </Label>
+            }
+          />
+          <TooltipContent>
+            При создании бэкапа удалять все
+            <br /> старые бэкапы, кроме {MAX_BACKUPS_TO_KEEP} последних
+          </TooltipContent>
         </Tooltip>
       </TooltipProvider>
     </div>

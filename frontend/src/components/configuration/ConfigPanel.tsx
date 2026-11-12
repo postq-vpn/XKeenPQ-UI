@@ -15,23 +15,23 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
-  IconBox,
-  IconBoltFilled,
-  IconCheck,
-  IconCode,
-  IconDeviceFloppy,
-  IconDotsFilled,
-  IconExternalLinkFilled,
-  IconFilePlus,
-  IconFileText,
-  IconLink,
-  IconPencil,
-  IconRefresh,
-  IconRoute,
-  IconSearch,
-  IconTrash,
-  IconX,
-} from '@tabler/icons-react'
+  Archive as IconBox,
+  Zap as IconBoltFilled,
+  Check as IconCheck,
+  Code as IconCode,
+  Save as IconDeviceFloppy,
+  Ellipsis as IconDotsFilled,
+  ExternalLink as IconExternalLinkFilled,
+  FilePlus as IconFilePlus,
+  FileText as IconFileText,
+  Link as IconLink,
+  Pencil as IconPencil,
+  RefreshCw as IconRefresh,
+  Route as IconRoute,
+  Search as IconSearch,
+  Trash2 as IconTrash,
+  X as IconX,
+} from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
 import { apiCall, getFileLanguage } from '../../lib/api'
 import { LazyBoundary, lazyLoad, useLazyMount } from '../../lib/loader'
@@ -166,9 +166,12 @@ function ConfigTab({ config, showToast, onRefreshConfigs, withContextMenu = fals
   }
 
   const tabsTrigger = (
-    <TabsTrigger value={config.file} className="dark:data-[state=active]:bg-input-background! relative data-[state=active]:bg-white!">
+    <TabsTrigger
+      value={config.file}
+      className="relative h-auto! flex-none cursor-default rounded-none border-0! bg-transparent! p-0! font-[family-name:var(--font-display)] text-[28px]! leading-8! font-bold! text-[var(--rd-heading)]! shadow-none! after:hidden md:text-[32px]! md:leading-9!"
+    >
       {tabLabel(config.file)}
-      {config.isDirty && <span className="absolute top-0.75 right-0.75 h-1.5 w-1.5 rounded-full bg-amber-400" />}
+      {config.isDirty && <span className="ml-2 size-2.5 rounded-full bg-[var(--rd-warn-icon)]" aria-label="не сохранено" />}
     </TabsTrigger>
   )
 
@@ -190,7 +193,7 @@ function ConfigTab({ config, showToast, onRefreshConfigs, withContextMenu = fals
       <ContextMenu>
         <ContextMenuTrigger className="contents">
           <Tooltip>
-            <PopoverTrigger render={<TooltipTrigger render={<span className="inline-flex">{tabsTrigger}</span>} />} />
+            <PopoverTrigger nativeButton={false} render={<TooltipTrigger render={<span className="inline-flex">{tabsTrigger}</span>} />} />
             <TooltipContent className="text-[13px]">{config.file}</TooltipContent>
           </Tooltip>
         </ContextMenuTrigger>
@@ -718,15 +721,15 @@ export function ConfigPanel({
   return (
     <TooltipProvider delayDuration={500}>
       <>
-        <div className="border-border bg-card flex flex-col overflow-hidden rounded-xl border md:min-h-0 md:flex-1">
-          <div className="flex shrink-0 flex-col gap-2 px-3 pt-3 sm:px-4 sm:pt-4">
-            <div className="flex flex-wrap items-center gap-2">
+        <div className="rd-card flex flex-col gap-(--rd-space-group) overflow-hidden md:min-h-0 md:flex-1">
+          <div className="flex shrink-0 flex-col gap-(--rd-space-title)">
+            <div className="flex flex-wrap items-center gap-(--rd-space-item)">
               {isConfigsLoading ? (
-                <Skeleton className="h-9 w-48 rounded-lg" />
+                <Skeleton className="h-9 w-40 rounded-lg" />
               ) : (
                 activeConfig && (
                   <Tabs value={activeConfig.file} className="min-w-0 flex-row!">
-                    <TabsList className="shrink-0">
+                    <TabsList className="h-auto! shrink-0 bg-transparent! p-0!">
                       <ConfigTab
                         key={activeConfig.file}
                         config={activeConfig}
@@ -738,14 +741,12 @@ export function ConfigPanel({
                   </Tabs>
                 )
               )}
-              {activeConfig && (
-                <span className="text-muted-foreground hidden min-w-0 truncate font-mono text-xs sm:inline">{activeConfig.file}</span>
-              )}
-              <div className="ml-auto flex items-center gap-2">{headerExtra}</div>
+              {headerExtra && <div className="ml-auto flex items-center gap-2">{headerExtra}</div>}
             </div>
+            {activeConfig && <p className="rd-meta min-w-0 truncate font-mono text-[13px]">{activeConfig.file}</p>}
           </div>
 
-          <div className="relative min-h-175! md:min-h-0 md:flex-1">
+          <div className="relative min-h-[60dvh] overflow-hidden rounded-[var(--rd-radius-sm)] bg-[var(--rd-field)] md:min-h-0 md:flex-1">
             {isEditorMounted && activeConfig && isRoutingGui && (
               <LazyBoundary>
                 <GuiRouting editorRef={editorRef} configs={configs} activeConfigIndex={activeConfigIndex} />
@@ -772,46 +773,33 @@ export function ConfigPanel({
             )}
           </div>
 
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-1.5 px-3 pb-3 sm:px-4 sm:pb-4">
-            <div className="min-w-0 text-xs">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-(--rd-space-item)">
+            <div className="min-w-0">
               {isConfigsLoading ? (
                 <Skeleton className="h-4 w-30" />
               ) : validationState && activeConfig && isJson ? (
                 <span
                   className={cn(
-                    'flex items-center gap-1.5 text-[13px] tracking-wide',
-                    validationState.isValid ? 'text-green-400/90' : 'text-red-500'
+                    'rd-meta flex items-center gap-1.5',
+                    validationState.isValid ? 'text-[var(--rd-success-text)]' : 'text-[var(--rd-error-text)]'
                   )}
                 >
                   {validationState.isValid ? <IconCheck size={15} /> : <IconX size={15} />}
                   {validationState.isValid
-                    ? `${fileLanguage?.toUpperCase()} валиден`
+                    ? `${fileLanguage?.toUpperCase()} без ошибок`
                     : `Ошибка: ${validationState.error || 'Файл невалиден'}`}
                 </span>
               ) : null}
             </div>
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-(--rd-space-item)">
               {isConfigsLoading ? (
-                <div className="flex gap-1.5">
+                <div className="flex gap-(--rd-space-item)">
                   {[120, 117, 96, 100].map((w) => (
-                    <Skeleton key={w} className="h-9" style={{ width: w }} />
+                    <Skeleton key={w} className="h-10 rounded-[12px]" style={{ width: w }} />
                   ))}
                 </div>
               ) : (
                 <>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button size="default" disabled={!canApply} className="btn-brand" onClick={() => saveAndApply()}>
-                          <IconRefresh data-icon="inline-start" /> Применить
-                        </Button>
-                      }
-                    />
-                    <TooltipContent>Сохранить и перезапустить</TooltipContent>
-                  </Tooltip>
-                  <Button size="default" disabled={!canSave} onClick={() => saveCurrentConfig()}>
-                    <IconDeviceFloppy data-icon="inline-start" /> Сохранить
-                  </Button>
                   <Tooltip>
                     <TooltipTrigger
                       render={
@@ -892,6 +880,19 @@ export function ConfigPanel({
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  <Button size="default" variant="secondary" disabled={!canSave} onClick={() => saveCurrentConfig()}>
+                    <IconDeviceFloppy data-icon="inline-start" /> Сохранить
+                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button size="default" disabled={!canApply} onClick={() => saveAndApply()}>
+                          <IconRefresh data-icon="inline-start" /> Применить
+                        </Button>
+                      }
+                    />
+                    <TooltipContent>Сохранить и перезапустить</TooltipContent>
+                  </Tooltip>
                 </>
               )}
             </div>

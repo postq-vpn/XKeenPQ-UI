@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
-import { IconAlertTriangle, IconDownload } from '@tabler/icons-react'
+import { TriangleAlert as IconAlertTriangle, Download as IconDownload } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { apiCall } from '../../lib/api'
 import { useAppActions } from '../../lib/store'
@@ -75,16 +75,14 @@ export function RoutingWarning({ reloadKey }: { reloadKey: number }) {
   return (
     <div
       role="alert"
-      className="flex items-start gap-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-400"
+      className="flex items-start gap-4 rounded-[var(--rd-radius-md)] bg-[var(--rd-error-bg)] px-5 py-4 text-[15px] leading-5 text-[var(--rd-error-text)]"
     >
       <IconAlertTriangle className="mt-0.5 size-5 shrink-0" />
       <div className="flex flex-col gap-1">
         <p className="font-semibold">Маршрутизация не настроена — VPN может работать неправильно</p>
         {files.length > 0 && <p>На роутере не хватает геобаз — списков сайтов, которые идут через VPN.</p>}
         {outbounds.length > 0 && <p>В настройках Xray на роутере не хватает обязательных частей.</p>}
-        <p className="text-red-700/80 dark:text-red-400/80">
-          Как только всё появится, панель сама включит маршрутизацию, и это сообщение исчезнет.
-        </p>
+        <p className="text-[var(--rd-body)]">Как только всё появится, панель сама включит маршрутизацию, и это сообщение исчезнет.</p>
         {files.length > 0 && (
           <Button
             variant="outline"

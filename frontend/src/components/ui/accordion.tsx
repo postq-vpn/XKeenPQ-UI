@@ -2,7 +2,7 @@ import { Accordion as AccordionPrimitive } from '@base-ui/react/accordion'
 import * as React from 'react'
 
 import { cn } from '@/lib/utils'
-import { IconChevronDown, IconChevronUp } from '@tabler/icons-react'
+import { ChevronDown as IconChevronDown, ChevronUp as IconChevronUp } from 'lucide-react'
 
 type AccordionProps = Omit<React.ComponentProps<typeof AccordionPrimitive.Root>, 'value' | 'defaultValue' | 'onValueChange'> & {
   type?: 'single' | 'multiple'

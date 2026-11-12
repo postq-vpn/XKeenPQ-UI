@@ -4,7 +4,7 @@ import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput, InputGroupText } from '@/components/ui/input-group'
 import { Label } from '@/components/ui/label'
 import { showToast } from '@/lib/store'
-import { IconArrowRight, IconEye, IconEyeOff, IconLock } from '@tabler/icons-react'
+import { ArrowRight as IconArrowRight, Eye as IconEye, EyeOff as IconEyeOff, Lock as IconLock } from 'lucide-react'
 import { useState } from 'react'
 import { BrandLogo } from '../ui/postq-logo'
 
@@ -24,8 +24,8 @@ export function RemoteBlocked() {
           <BrandLogo className="text-[28px]" />
         </h1>
         <p className="text-muted-foreground text-sm text-pretty">
-          Без пароля панель доступна только из локальной сети. Откройте её по адресу роутера, например http://192.168.1.1:1000, и
-          включите авторизацию в настройках.
+          Без пароля панель доступна только из локальной сети. Откройте её по адресу роутера, например http://192.168.1.1:1000, и включите
+          авторизацию в настройках.
         </p>
       </div>
     </div>
