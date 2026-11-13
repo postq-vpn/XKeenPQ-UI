@@ -11,5 +11,7 @@ export function getStoredTheme(): ThemeMode {
 export function applyTheme(theme: ThemeMode) {
   const isDark = theme === 'dark' || (theme === 'auto' && window.matchMedia(THEME_MEDIA_QUERY).matches)
   document.documentElement.classList.toggle('dark', isDark)
+  // Цвет статус-бара установленного приложения (iOS, Android) — цвет фона страницы.
+  document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', isDark ? '#1a1a1c' : '#f8f8f8')
   window.localStorage.setItem(THEME_STORAGE_KEY, theme)
 }

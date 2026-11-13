@@ -27,8 +27,12 @@ fn build_res(path: &str, data: impl Into<Body>, is_gz: bool) -> Response {
             header::CACHE_CONTROL,
             if path == "index.html" {
                 "no-store"
-            } else {
+            } else if path.starts_with("assets/") {
+                // Сборка кладёт сюда файлы с хешем в имени: их содержимое не меняется.
                 "public, max-age=31536000, immutable"
+            } else {
+                // manifest.json и иконки без хеша: после обновления панели должны подтянуться заново.
+                "no-cache"
             },
         );
 
