@@ -1,4 +1,5 @@
 import { REMOTE_FETCH_TIMEOUT_MS } from './multi-routers/model'
+import { reportConnectionLost } from './reachability'
 
 function apiPrefix(baseUrl?: string | null): string {
   return baseUrl ? `${baseUrl}/api` : '/api'
@@ -35,7 +36,11 @@ export async function apiCall<T = unknown>(
     })
     return (await res.json()) as T
   } catch (e) {
-    if (isNetworkError(e)) throw new Error(NETWORK_ERROR)
+    if (isNetworkError(e)) {
+      // Обрыв до удалённого роутера (мульти-роутер) — не повод закрывать панель своего.
+      if (!options?.baseUrl) reportConnectionLost()
+      throw new Error(NETWORK_ERROR)
+    }
     throw e
   } finally {
     if (timer) clearTimeout(timer)

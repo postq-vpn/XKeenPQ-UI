@@ -78,82 +78,101 @@ export function VpnBlock({
       ? 'Устройства выходят в интернет напрямую'
       : (route ?? (subs.length === 0 && !loading ? 'Нет подписки — серверов пока нет' : 'Сайты из списков идут через VPN'))
 
-  return (
-    <section
-      className="rd-card rd-vpn-card flex flex-col gap-(--rd-space-card)"
-      data-state={isPending ? 'pending' : isRunning ? 'running' : 'stopped'}
-      aria-labelledby="vpn-title"
+  const dataState = isPending ? 'pending' : isRunning ? 'running' : 'stopped'
+
+  const powerButton = (hero: boolean) => (
+    <button
+      type="button"
+      aria-pressed={isRunning}
+      aria-label={isRunning ? 'Выключить VPN' : 'Включить VPN'}
+      title={isRunning ? 'Выключить VPN' : 'Включить VPN'}
+      className={cn('rd-power', hero && 'rd-power--hero')}
+      disabled={isPending}
+      onClick={() => void control(isRunning ? 'stop' : 'start')}
     >
-      <div className="flex items-center justify-between gap-(--rd-space-group)">
-        <div className="flex min-w-0 flex-col gap-(--rd-space-title)">
-          <h2 id="vpn-title" className="rd-title" aria-live="polite">
+      <span className="rd-sonar" aria-hidden>
+        <span />
+      </span>
+      {isPending ? (
+        <Spinner className={hero ? 'size-9' : 'size-7'} />
+      ) : (
+        // Выключен — значок питания; при включении он превращается в знак PostqVPN (globals.css, .rd-power__*).
+        <span className="rd-power__icons" aria-hidden>
+          <IconPower size={hero ? 40 : 30} strokeWidth={2.25} className="rd-power__off" />
+          <PostqMark width={hero ? 40 : 30} height={hero ? 43 : 32} className={cn('rd-power__on', !hero && 'md:h-[34px] md:w-8')} />
+        </span>
+      )}
+    </button>
+  )
+
+  return (
+    <>
+      {/* Телефон и планшет: включение — отдельным блоком наверху, по центру. */}
+      <section
+        className="rd-card rd-vpn-card flex flex-col items-center gap-(--rd-space-group) text-center lg:hidden"
+        data-state={dataState}
+        aria-labelledby="vpn-title-compact"
+      >
+        {powerButton(true)}
+        <div className="flex max-w-full min-w-0 flex-col items-center gap-(--rd-space-title)">
+          <h2 id="vpn-title-compact" className="rd-title" aria-live="polite">
             {title}
           </h2>
-          <p className="rd-meta truncate">{caption}</p>
+          <p className="rd-meta text-pretty">{caption}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-(--rd-space-group)">
-          {isRunning && (
-            <button
-              type="button"
-              className="rd-icon-btn max-sm:hidden"
-              onClick={() => void control('hardRestart')}
-              disabled={isPending}
-              aria-label="Перезапустить VPN"
-              title="Перезапустить VPN"
-            >
-              <IconRefresh size={20} />
-            </button>
-          )}
-          <button
-            type="button"
-            aria-pressed={isRunning}
-            aria-label={isRunning ? 'Выключить VPN' : 'Включить VPN'}
-            title={isRunning ? 'Выключить VPN' : 'Включить VPN'}
-            className="rd-power"
-            disabled={isPending}
-            onClick={() => void control(isRunning ? 'stop' : 'start')}
-          >
-            <span className="rd-sonar" aria-hidden>
-              <span />
-            </span>
-            {isPending ? (
-              <Spinner className="size-7" />
-            ) : (
-              // Выключен — значок питания; при включении он превращается в знак PostqVPN (globals.css, .rd-power__*).
-              <span className="rd-power__icons" aria-hidden>
-                <IconPower size={30} strokeWidth={2.25} className="rd-power__off" />
-                <PostqMark width={30} height={32} className="rd-power__on md:h-[34px] md:w-8" />
-              </span>
-            )}
-          </button>
-        </div>
-      </div>
+      </section>
 
-      {loading ? (
-        <div className="flex flex-col gap-(--rd-space-group)">
-          <Skeleton className="h-6 w-24 rounded-lg" />
-          <div className="grid grid-cols-1 gap-(--rd-space-item) sm:grid-cols-2">
-            {Array.from({ length: 6 }, (_, i) => (
-              <Skeleton key={i} className="h-14 rounded-[var(--rd-radius-sm)]" />
-            ))}
+      <section className="rd-card rd-vpn-card flex flex-col gap-(--rd-space-card)" data-state={dataState} aria-labelledby="vpn-title">
+        <div className="flex items-center justify-between gap-(--rd-space-group) max-lg:hidden">
+          <div className="flex min-w-0 flex-col gap-(--rd-space-title)">
+            <h2 id="vpn-title" className="rd-title" aria-live="polite">
+              {title}
+            </h2>
+            <p className="rd-meta truncate">{caption}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-(--rd-space-group)">
+            {isRunning && (
+              <button
+                type="button"
+                className="rd-icon-btn"
+                onClick={() => void control('hardRestart')}
+                disabled={isPending}
+                aria-label="Перезапустить VPN"
+                title="Перезапустить VPN"
+              >
+                <IconRefresh size={20} />
+              </button>
+            )}
+            {powerButton(false)}
           </div>
         </div>
-      ) : subs.length === 0 ? (
-        <div className="flex flex-col items-start gap-(--rd-space-group) rounded-[var(--rd-radius-md)] bg-[var(--rd-field)] p-(--rd-space-card)">
-          <p className="rd-body text-[var(--rd-body)]">Серверы появятся, когда вы добавите подписку.</p>
-          <button type="button" className="rd-btn-soft" onClick={onAddSubscription}>
-            Добавить подписку
-          </button>
-        </div>
-      ) : (
-        subs.map((sub) => <ServerPicker key={sub.tag} sub={sub} state={state} withTitle={subs.length > 1} />)
-      )}
 
-      <button type="button" className="rd-btn-tile rd-btn-tile--muted" onClick={downloadLog} title="error.log и access.log одним архивом">
-        <IconDownload size={20} />
-        Скачать журнал для поддержки
-      </button>
-    </section>
+        {loading ? (
+          <div className="flex flex-col gap-(--rd-space-group)">
+            <Skeleton className="h-6 w-24 rounded-lg" />
+            <div className="grid grid-cols-1 gap-(--rd-space-item) sm:grid-cols-2">
+              {Array.from({ length: 6 }, (_, i) => (
+                <Skeleton key={i} className="h-14 rounded-[var(--rd-radius-sm)]" />
+              ))}
+            </div>
+          </div>
+        ) : subs.length === 0 ? (
+          <div className="flex flex-col items-start gap-(--rd-space-group) rounded-[var(--rd-radius-md)] bg-[var(--rd-field)] p-(--rd-space-card)">
+            <p className="rd-body text-[var(--rd-body)]">Серверы появятся, когда вы добавите подписку.</p>
+            <button type="button" className="rd-btn-soft" onClick={onAddSubscription}>
+              Добавить подписку
+            </button>
+          </div>
+        ) : (
+          subs.map((sub) => <ServerPicker key={sub.tag} sub={sub} state={state} withTitle={subs.length > 1} />)
+        )}
+
+        <button type="button" className="rd-btn-tile rd-btn-tile--muted" onClick={downloadLog} title="error.log и access.log одним архивом">
+          <IconDownload size={20} />
+          Скачать журнал для поддержки
+        </button>
+      </section>
+    </>
   )
 }
 

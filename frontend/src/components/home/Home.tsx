@@ -13,11 +13,14 @@ import { useState } from 'react'
 import type { XraySubscription } from '../../lib/types'
 import { useSubscriptions } from '../../lib/useSubscriptions'
 import { XraySubscriptionEditor } from '../modals/XraySubscriptions'
+import { cn } from '../../lib/utils'
+import type { MobileTab } from './MobileTabBar'
 import { RouterBlock } from './RouterBlock'
 import { SubscriptionBlock } from './SubscriptionBlock'
 import { VpnBlock } from './VpnBlock'
 
 /**
+ * На телефоне блоки разнесены по разделам нижней панели (MobileTabBar), на десктопе — рядом.
  * Главная: два блока. «Подписка» — откуда берутся серверы,
  * «VPN» — включён ли VPN и через какой сервер идёт трафик.
  */
@@ -27,7 +30,10 @@ export function Home({
   onChanged,
   onAddNew,
   onRefreshStatus,
+  mobileTab,
 }: {
+  /** Раздел нижней панели на телефоне; на десктопе видны все блоки сразу. */
+  mobileTab: MobileTab
   reloadKey: number
   onLoaded: (subs: XraySubscription[]) => void
   onChanged: () => void
@@ -44,20 +50,24 @@ export function Home({
       <div className="grid grid-cols-1 items-start gap-(--rd-space-grid) lg:grid-cols-[440px_minmax(0,1fr)] xl:grid-cols-[480px_minmax(0,1fr)]">
         {/* На телефоне обёртка растворяется в сетке, и «Роутер» встаёт после VPN. */}
         <div className="contents lg:sticky lg:top-[calc(56px+var(--rd-space-grid)+var(--rd-space-head))] lg:flex lg:flex-col lg:gap-(--rd-space-grid)">
-          <SubscriptionBlock
-            state={state}
-            onAdd={onAddNew}
-            onEdit={(sub) => {
-              setEditing(sub)
-              setEditorOpen(true)
-            }}
-            onDelete={setDeleting}
-          />
-          <div className="order-last lg:order-none">
+          <div className={cn(mobileTab !== 'subscription' && 'max-lg:hidden')}>
+            <SubscriptionBlock
+              state={state}
+              onAdd={onAddNew}
+              onEdit={(sub) => {
+                setEditing(sub)
+                setEditorOpen(true)
+              }}
+              onDelete={setDeleting}
+            />
+          </div>
+          <div className={cn('order-last lg:order-none', mobileTab !== 'router' && 'max-lg:hidden')}>
             <RouterBlock />
           </div>
         </div>
-        <VpnBlock state={state} onRefreshStatus={onRefreshStatus} onAddSubscription={onAddNew} />
+        <div className={cn('flex flex-col gap-(--rd-space-grid)', mobileTab !== 'home' && 'max-lg:hidden')}>
+          <VpnBlock state={state} onRefreshStatus={onRefreshStatus} onAddSubscription={onAddNew} />
+        </div>
       </div>
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>

@@ -401,8 +401,31 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ onOpenLog }: SettingsModalProps) {
-  const { state, dispatch, showToast } = useAppContext({ includeSettings: true })
+  const { dispatch } = useAppContext()
   const { modals } = useModalContext()
+  const close = useCallback(() => dispatch({ type: 'SHOW_MODAL', modal: 'showSettingsModal', show: false }), [dispatch])
+
+  return (
+    <Dialog open={modals.showSettingsModal} onOpenChange={(open) => !open && close()}>
+      <DialogContent className="flex max-h-[88dvh] max-w-xl! flex-col gap-(--rd-space-card) overflow-hidden">
+        <DialogHeader className="shrink-0">
+          <DialogTitle>Настройки</DialogTitle>
+        </DialogHeader>
+        <SettingsPanel
+          onOpenLog={() => {
+            close()
+            onOpenLog()
+          }}
+          bodyClassName="-mx-(--rd-space-card) min-h-0 scrollbar-thin overflow-y-auto px-(--rd-space-card) pb-1"
+        />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Содержимое настроек: окном на десктопе (SettingsModal) и отдельным экраном на телефоне (SettingsPage). */
+export function SettingsPanel({ onOpenLog, bodyClassName }: { onOpenLog: () => void; bodyClassName?: string }) {
+  const { state, dispatch, showToast } = useAppContext({ includeSettings: true })
   const { settings } = state
   const techMenu = useTechMenuUnlocked()
   const [tab, setTab] = useState('general')
@@ -410,8 +433,6 @@ export function SettingsModal({ onOpenLog }: SettingsModalProps) {
   useEffect(() => {
     if (!techMenu && tab === 'tech') setTab('general')
   }, [techMenu, tab])
-
-  const close = useCallback(() => dispatch({ type: 'SHOW_MODAL', modal: 'showSettingsModal', show: false }), [dispatch])
 
   const saveSetting = useCallback(
     async (path: string, value: unknown) => {
@@ -535,7 +556,7 @@ export function SettingsModal({ onOpenLog }: SettingsModalProps) {
                 aria-checked={settings.theme === o.value}
                 onClick={() => setTheme(o.value)}
                 className={cn(
-                  'h-9 cursor-pointer rounded-[9px] text-[14px] font-medium transition-colors',
+                  'h-9 cursor-pointer rounded-[9px] px-1 text-[14px] font-medium whitespace-nowrap transition-colors',
                   settings.theme === o.value
                     ? 'bg-[var(--rd-field)] text-[var(--rd-heading)] dark:bg-[var(--rd-chip-hover)]'
                     : 'text-[var(--rd-caption)] hover:text-[var(--rd-heading)]'
@@ -555,14 +576,7 @@ export function SettingsModal({ onOpenLog }: SettingsModalProps) {
 
   const tech = (
     <div className="flex flex-col gap-(--rd-space-card)">
-      <button
-        type="button"
-        className="rd-btn-tile rd-btn-tile--muted min-h-14 w-full text-[15px]"
-        onClick={() => {
-          close()
-          onOpenLog()
-        }}
-      >
+      <button type="button" className="rd-btn-tile rd-btn-tile--muted min-h-14 w-full text-[15px]" onClick={onOpenLog}>
         Журнал Xray, конфиги и списки XKeen
       </button>
 
@@ -650,45 +664,37 @@ export function SettingsModal({ onOpenLog }: SettingsModalProps) {
   )
 
   return (
-    <Dialog open={modals.showSettingsModal} onOpenChange={(open) => !open && close()}>
-      <DialogContent className="flex max-h-[88dvh] max-w-xl! flex-col gap-(--rd-space-card) overflow-hidden">
-        <DialogHeader className="shrink-0">
-          <DialogTitle>Настройки</DialogTitle>
-        </DialogHeader>
-
-        {techMenu && (
-          <div
-            role="tablist"
-            aria-label="Разделы настроек"
-            className="grid shrink-0 grid-cols-2 gap-1 rounded-[14px] bg-[var(--rd-field)] p-1"
-          >
-            {[
-              { id: 'general', label: 'Основные' },
-              { id: 'tech', label: 'Техническое меню' },
-            ].map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                role="tab"
-                aria-selected={tab === t.id}
-                onClick={() => setTab(t.id)}
-                className={cn(
-                  'h-10 cursor-pointer rounded-[10px] text-[15px] font-medium transition-colors',
-                  tab === t.id
-                    ? 'bg-[var(--rd-surface)] text-[var(--rd-heading)] shadow-[0_2px_10px_rgba(0,0,0,0.06)] dark:bg-[var(--rd-chip-hover)]'
-                    : 'text-[var(--rd-caption)] hover:text-[var(--rd-heading)]'
-                )}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="-mx-(--rd-space-card) min-h-0 scrollbar-thin overflow-y-auto px-(--rd-space-card) pb-1">
-          {techMenu && tab === 'tech' ? tech : general}
+    <>
+      {techMenu && (
+        <div
+          role="tablist"
+          aria-label="Разделы настроек"
+          className="grid shrink-0 grid-cols-2 gap-1 rounded-[14px] bg-[var(--rd-field)] p-1"
+        >
+          {[
+            { id: 'general', label: 'Основные' },
+            { id: 'tech', label: 'Техническое меню' },
+          ].map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === t.id}
+              onClick={() => setTab(t.id)}
+              className={cn(
+                'h-10 cursor-pointer rounded-[10px] text-[15px] font-medium transition-colors',
+                tab === t.id
+                  ? 'bg-[var(--rd-surface)] text-[var(--rd-heading)] shadow-[0_2px_10px_rgba(0,0,0,0.06)] dark:bg-[var(--rd-chip-hover)]'
+                  : 'text-[var(--rd-caption)] hover:text-[var(--rd-heading)]'
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
-      </DialogContent>
-    </Dialog>
+      )}
+
+      <div className={bodyClassName}>{techMenu && tab === 'tech' ? tech : general}</div>
+    </>
   )
 }

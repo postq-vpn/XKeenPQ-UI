@@ -1,6 +1,7 @@
-import { useEffect, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react'
 
-/** «Техническое меню» в настройках скрыто, пока его не включат сочетанием Alt+Shift+T (⌥⇧T). */
+/** «Техническое меню» в настройках скрыто, пока его не включат сочетанием Alt+Shift+T (⌥⇧T)
+ * или, на телефоне, пятью нажатиями на знак в шапке экрана настроек. */
 const STORAGE_KEY = 'ui:techMenu'
 const listeners = new Set<() => void>()
 
@@ -64,5 +65,24 @@ export function useTechMenuHotkey(onToggle: (unlocked: boolean) => void) {
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
+  }, [onToggle])
+}
+
+const TAPS_TO_TOGGLE = 5
+/** Пауза между нажатиями, после которой счёт начинается заново. */
+const TAP_GAP_MS = 800
+
+/** Пять быстрых нажатий переключают меню (на телефоне нет сочетаний клавиш). Возвращает обработчик нажатия. */
+export function useTechMenuTaps(onToggle: (unlocked: boolean) => void) {
+  const taps = useRef({ count: 0, last: 0 })
+  return useCallback(() => {
+    const now = Date.now()
+    const t = taps.current
+    t.count = now - t.last > TAP_GAP_MS ? 1 : t.count + 1
+    t.last = now
+    if (t.count < TAPS_TO_TOGGLE) return
+    t.count = 0
+    setUnlocked(!unlocked)
+    onToggle(unlocked)
   }, [onToggle])
 }

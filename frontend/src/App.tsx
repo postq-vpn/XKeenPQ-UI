@@ -1,6 +1,9 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { LoginForm, RemoteBlocked } from './components/auth/Login'
+import { RouterUnreachable } from './components/status/RouterUnreachable'
+import { MOBILE_TABS, MobileTabBar, type MobileTab } from './components/home/MobileTabBar'
+import { SettingsPage } from './components/home/SettingsPage'
 import type { CodeMirrorRef } from './components/configuration/CodeMirror'
 import { ConfigPanel, isPanelManagedFile } from './components/configuration/ConfigPanel'
 
@@ -28,6 +31,7 @@ import { applyRoutersFromSettings, refreshAllOnline } from './lib/multi-routers/
 import { useRoutersStore } from './lib/multi-routers/store'
 import { getAppState, useAppActions, useModalContext, useSettings } from './lib/store'
 import { isTechMenuUnlocked, lockTechMenuOnVersionChange, useTechMenuHotkey, useTechMenuUnlocked } from './lib/techMenu'
+import { onConnectionLost, probeRouter, type LoginInfo } from './lib/reachability'
 import { applyTheme, THEME_MEDIA_QUERY } from './lib/theme'
 import { DEFAULT_XRAY_REPO, type Config, type ThemeMode, type XraySubscription } from './lib/types'
 import { parse as parseJsonc } from 'jsonc-parser'
@@ -298,6 +302,35 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     if (wasUnlockedRef.current && !techMenuUnlocked) setView('servers')
     wasUnlockedRef.current = techMenuUnlocked
   }, [techMenuUnlocked, setView])
+  // Раздел нижней панели на телефоне. Помнится между запусками, как вкладка в приложении.
+  const [mobileTab, setMobileTabState] = useState<MobileTab>(() => {
+    try {
+      const saved = localStorage.getItem('ui:tab')
+      return MOBILE_TABS.some((t) => t.id === saved) ? (saved as MobileTab) : 'home'
+    } catch {
+      return 'home'
+    }
+  })
+  const setMobileTab = useCallback((tab: MobileTab) => {
+    setMobileTabState(tab)
+    window.scrollTo({ top: 0 })
+    try {
+      localStorage.setItem('ui:tab', tab)
+    } catch {
+      /* без хранилища раздел живёт до перезагрузки */
+    }
+  }, [])
+  // Настройки на телефоне — отдельный экран. Запись в истории, чтобы системный жест «назад» его закрывал.
+  const [settingsPage, setSettingsPage] = useState(false)
+  useEffect(() => {
+    const onPop = () => setSettingsPage(!!window.history.state?.settingsPage)
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+  const closeSettingsPage = useCallback(() => {
+    if (window.history.state?.settingsPage) window.history.back()
+    else setSettingsPage(false)
+  }, [])
   const [activeFile, setActiveFile] = useState<string | null>(null)
   const openFile = useCallback(
     (file: string) => {
@@ -438,13 +471,31 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     (modal: string) => setTimeout(() => dispatch({ type: 'SHOW_MODAL', modal: modal as any, show: true }), 0),
     [dispatch]
   )
+  const openSettings = useCallback(() => {
+    // Десктоп — окно; телефон и планшет (там же нижняя панель) — отдельный экран.
+    if (window.matchMedia('(min-width: 1024px)').matches) {
+      openModal('showSettingsModal')
+      return
+    }
+    window.history.pushState({ settingsPage: true }, '')
+    setSettingsPage(true)
+    window.scrollTo({ top: 0 })
+  }, [openModal])
+  const showTabBar = view === 'servers' && !settingsPage
 
   return (
     <div className="bg-background flex min-h-dvh flex-col">
       <main className="flex flex-1 flex-col">
-        <div className="mx-auto flex w-full max-w-[1280px] flex-1 flex-col gap-(--rd-space-grid) px-4 pt-(--rd-space-grid) pb-8 sm:px-6">
+        <div
+          className={cn(
+            'mx-auto flex w-full max-w-[1280px] flex-1 flex-col gap-(--rd-space-grid) px-4 pt-(--rd-space-grid) pb-8 sm:px-6',
+            // Просвет под нижней панелью разделов: иначе низ раздела уходит под неё.
+            showTabBar && 'max-lg:pb-(--mobile-nav-clearance)'
+          )}
+        >
           <AppHeader
-            onOpenSettings={() => openModal('showSettingsModal')}
+            onOpenSettings={openSettings}
+            onBack={settingsPage ? closeSettingsPage : undefined}
             onOpenUpdate={(core) => {
               dispatch({ type: 'SET_UPDATE_MODAL_CORE', core })
               openModal('showUpdateModal')
@@ -452,49 +503,63 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
             onLogout={logout}
             onHome={goHome}
           />
-          <RoutingWarning reloadKey={subsReloadKey} />
-          <PolicyWarning onRestarted={() => void checkStatus()} />
-          <div className={cn(view !== 'servers' && 'hidden')}>
-            <Home
-              reloadKey={subsReloadKey}
-              onChanged={() => void refreshConfigsSilently()}
-              onAddNew={() => openModal('showImportModal')}
-              onLoaded={onSubscriptionsLoaded}
-              onRefreshStatus={() => void checkStatus()}
+          {settingsPage && (
+            <SettingsPage
+              onOpenLog={() => {
+                closeSettingsPage()
+                openLog()
+              }}
             />
-          </div>
-          {/* Техническое меню: навигация слева (на телефоне — список сверху), справа редактор файла или журнал. */}
-          <div
-            className={cn(
-              'grid grid-cols-1 items-start gap-(--rd-space-grid) lg:grid-cols-[260px_minmax(0,1fr)]',
-              view === 'servers' && 'hidden'
-            )}
-          >
-            <div className="hidden lg:sticky lg:top-[calc(56px+var(--rd-space-grid)+var(--rd-space-head))] lg:block">
-              <TechNav {...techNavProps} />
+          )}
+          {/* Экран настроек закрывает разделы, но не размонтирует их: подписка и выбор сервера не грузятся заново. */}
+          <div className={settingsPage ? 'hidden' : 'contents'}>
+            <RoutingWarning reloadKey={subsReloadKey} />
+            <PolicyWarning onRestarted={() => void checkStatus()} />
+            <div className={cn(view !== 'servers' && 'hidden')}>
+              <Home
+                reloadKey={subsReloadKey}
+                onChanged={() => void refreshConfigsSilently()}
+                onAddNew={() => openModal('showImportModal')}
+                onLoaded={onSubscriptionsLoaded}
+                onRefreshStatus={() => void checkStatus()}
+                mobileTab={mobileTab}
+              />
             </div>
-            <div className="flex min-w-0 flex-col gap-(--rd-space-grid)">
-              <TechNavMenu {...techNavProps} />
-              <div className={cn('flex flex-col md:h-[calc(100dvh-180px)] md:min-h-[560px]', view !== 'files' && 'hidden')}>
-                <ConfigPanel
-                  editorRef={editorRef}
-                  configActionsRef={configActionsRef}
-                  onOpenImport={() => openModal('showImportModal')}
-                  onOpenTemplate={() => openModal('showTemplateModal')}
-                  onOpenGeoScan={() => openModal('showGeoScanModal')}
-                  onOpenRouteTest={() => openModal('showRouteTestModal')}
-                  onOpenBackups={() => openModal('showBackupsModal')}
-                  onRefreshConfigs={refreshConfigsSilently}
-                  onActiveFileChange={setActiveFile}
-                />
+            {/* Техническое меню: навигация слева (на телефоне — список сверху), справа редактор файла или журнал. */}
+            <div
+              className={cn(
+                'grid grid-cols-1 items-start gap-(--rd-space-grid) lg:grid-cols-[260px_minmax(0,1fr)]',
+                view === 'servers' && 'hidden'
+              )}
+            >
+              <div className="hidden lg:sticky lg:top-[calc(56px+var(--rd-space-grid)+var(--rd-space-head))] lg:block">
+                <TechNav {...techNavProps} />
               </div>
-              <div className={cn('flex flex-col md:h-[calc(100dvh-180px)] md:min-h-[560px]', view !== 'log' && 'hidden')}>
-                <LogPanel asPage />
+              <div className="flex min-w-0 flex-col gap-(--rd-space-grid)">
+                <TechNavMenu {...techNavProps} />
+                <div className={cn('flex flex-col md:h-[calc(100dvh-180px)] md:min-h-[560px]', view !== 'files' && 'hidden')}>
+                  <ConfigPanel
+                    editorRef={editorRef}
+                    configActionsRef={configActionsRef}
+                    onOpenImport={() => openModal('showImportModal')}
+                    onOpenTemplate={() => openModal('showTemplateModal')}
+                    onOpenGeoScan={() => openModal('showGeoScanModal')}
+                    onOpenRouteTest={() => openModal('showRouteTestModal')}
+                    onOpenBackups={() => openModal('showBackupsModal')}
+                    onRefreshConfigs={refreshConfigsSilently}
+                    onActiveFileChange={setActiveFile}
+                  />
+                </div>
+                <div className={cn('flex flex-col md:h-[calc(100dvh-180px)] md:min-h-[560px]', view !== 'log' && 'hidden')}>
+                  <LogPanel asPage />
+                </div>
               </div>
             </div>
           </div>
         </div>
       </main>
+      {/* Разделы — только на главном экране: журнал и файлы технического меню — вложенные страницы. */}
+      {showTabBar && <MobileTabBar active={mobileTab} onSelect={setMobileTab} />}
       <Toast />
       <ModalManager
         onInstalled={onInstalled}
@@ -515,24 +580,78 @@ type View = 'servers' | 'files' | 'log'
 
 const VERSION_POLL_MS = 5 * 60 * 1000
 
-type AuthState = 'loading' | 'login' | 'setup' | 'remote-blocked' | 'authenticated'
+type AuthState = 'loading' | 'login' | 'setup' | 'remote-blocked' | 'authenticated' | 'unreachable'
+
+function authStateFrom(info: LoginInfo): AuthState {
+  if (info.authenticated || (!info.enabled && info.local)) return 'authenticated'
+  if (!info.enabled) return 'remote-blocked'
+  if (info.has_password) return 'login'
+  return info.local ? 'setup' : 'remote-blocked'
+}
+
+/** Пауза перед повторной проверкой: один сорвавшийся запрос (роутер занят, перезапуск панели
+ * после обновления) — ещё не повод закрывать панель экраном недоступности. */
+const RECHECK_DELAY_MS = 1500
+
+/** Пока панель открыта, следит за связью с роутером: проверяет при возврате в приложение, при смене
+ * сети и при оборванном запросе. Нет ответа дважды подряд — роутер считается потерянным. */
+function useConnectionWatch(enabled: boolean, onLost: () => void) {
+  const onLostRef = useRef(onLost)
+  useEffect(() => {
+    onLostRef.current = onLost
+  }, [onLost])
+
+  useEffect(() => {
+    if (!enabled) return
+    let cancelled = false
+    let running = false
+    const check = async () => {
+      if (running) return
+      running = true
+      let reachable = !!(await probeRouter())
+      if (!reachable && !cancelled) {
+        await new Promise((resolve) => setTimeout(resolve, RECHECK_DELAY_MS))
+        reachable = !!(await probeRouter())
+      }
+      running = false
+      if (!reachable && !cancelled) onLostRef.current()
+    }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void check()
+    }
+    const onNetworkChange = () => void check()
+    const unsubscribe = onConnectionLost(() => void check())
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('online', onNetworkChange)
+    window.addEventListener('offline', onNetworkChange)
+    return () => {
+      cancelled = true
+      unsubscribe()
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('online', onNetworkChange)
+      window.removeEventListener('offline', onNetworkChange)
+    }
+  }, [enabled])
+}
 
 export default function App() {
   const [authState, setAuthState] = useState<AuthState>('loading')
+  /** Связь пропала при открытой панели: экран недоступности поверх неё, чтобы не терять её состояние. */
+  const [connectionLost, setConnectionLost] = useState(false)
   const theme = useSettings((s) => s.theme)
 
   useThemeMode(theme)
 
   useEffect(() => {
-    fetch('/api/auth/login')
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.authenticated || (!data.enabled && data.local)) setAuthState('authenticated')
-        else if (!data.enabled) setAuthState('remote-blocked')
-        else if (data.has_password) setAuthState('login')
-        else setAuthState(data.local ? 'setup' : 'remote-blocked')
-      })
-      .catch(() => setAuthState('login'))
+    void probeRouter().then((info) => setAuthState(info ? authStateFrom(info) : 'unreachable'))
+  }, [])
+
+  useConnectionWatch(authState === 'authenticated' && !connectionLost, () => setConnectionLost(true))
+
+  /** Роутер снова отвечает. Сессия могла истечь, пока его не было, — тогда на вход. */
+  const handleReachable = useCallback((info: LoginInfo) => {
+    setConnectionLost(false)
+    setAuthState(authStateFrom(info))
   }, [])
 
   const handleLogout = useCallback(async () => {
@@ -543,21 +662,28 @@ export default function App() {
   if (authState === 'loading') return null
 
   return (
-    <AnimatePresence mode="wait">
-      {authState === 'remote-blocked' ? (
-        <motion.div key="blocked" initial={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
-          <RemoteBlocked />
-        </motion.div>
-      ) : authState === 'login' || authState === 'setup' ? (
-        <motion.div key="login" initial={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
-          <LoginForm mode={authState} onAuth={() => setAuthState('authenticated')} />
-          <Toast />
-        </motion.div>
-      ) : (
-        <motion.div key="app" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
-          <AppContent onLogout={handleLogout} />
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <>
+      {connectionLost && authState === 'authenticated' && <RouterUnreachable overlay onReachable={handleReachable} />}
+      <AnimatePresence mode="wait">
+        {authState === 'unreachable' ? (
+          <motion.div key="unreachable" initial={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
+            <RouterUnreachable onReachable={handleReachable} />
+          </motion.div>
+        ) : authState === 'remote-blocked' ? (
+          <motion.div key="blocked" initial={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
+            <RemoteBlocked />
+          </motion.div>
+        ) : authState === 'login' || authState === 'setup' ? (
+          <motion.div key="login" initial={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
+            <LoginForm mode={authState} onAuth={() => setAuthState('authenticated')} />
+            <Toast />
+          </motion.div>
+        ) : (
+          <motion.div key="app" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
+            <AppContent onLogout={handleLogout} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   )
 }
