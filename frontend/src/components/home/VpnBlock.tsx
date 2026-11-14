@@ -88,7 +88,9 @@ export function VpnBlock({
     )
     setStarting(null)
     if (liquid) setFromLiquid(true)
-    if (action !== 'stop') dispatch({ type: 'SET_SERVICE_STATUS', status: result.success ? 'running' : 'stopped' })
+    // Итог ставим сами: опрос статуса, пока идёт действие, состояние не трогает (App, checkStatus).
+    const on = action === 'start' ? result.success : !result.success
+    dispatch({ type: 'SET_SERVICE_STATUS', status: on ? 'running' : 'stopped' })
     onRefreshStatus()
   }
 
