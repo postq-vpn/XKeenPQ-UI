@@ -1,6 +1,5 @@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Spinner } from '@/components/ui/spinner'
 import { ArrowUpRight as IconArrowUpRight, ChevronDown as IconChevronDown, Ellipsis as IconDots } from 'lucide-react'
 import type { SubscriptionsState } from '../../lib/useSubscriptions'
 import type { XraySubscription } from '../../lib/types'
@@ -83,8 +82,7 @@ function SubscriptionCard({
   onEdit: (sub: XraySubscription) => void
   onDelete: (sub: XraySubscription) => void
 }) {
-  const { updatingTags, refresh } = state
-  const isUpdating = updatingTags.includes(sub.tag)
+  const { updatingTags } = state
   const anyUpdating = updatingTags.length > 0
   const info = sub.userinfo
   const used = (info?.upload ?? 0) + (info?.download ?? 0)
@@ -169,10 +167,6 @@ function SubscriptionCard({
       />
 
       <div className="flex flex-col gap-(--rd-space-item)">
-        <button type="button" className="rd-btn-tile" onClick={() => void refresh(sub.tag)} disabled={anyUpdating}>
-          {isUpdating && <Spinner className="size-5" />}
-          {isUpdating ? 'Обновляю…' : 'Обновить подписку'}
-        </button>
         <PostqLinks />
       </div>
     </section>
@@ -192,7 +186,8 @@ function SupportItem({ href, title, subtitle }: { href: string; title: string; s
 /** Личный кабинет и поддержка (в кабинете или в Telegram). */
 function PostqLinks() {
   return (
-    <div className="grid grid-cols-2 gap-(--rd-space-item) [&>*]:px-(--rd-space-group) [&>*]:whitespace-nowrap">
+    // На телефоне в половину строки «Личный кабинет» со стрелкой не помещается — кнопки друг под другом.
+    <div className="grid grid-cols-1 gap-(--rd-space-item) sm:grid-cols-2 [&>*]:px-(--rd-space-group) [&>*]:whitespace-nowrap">
       <a href={CABINET_URL} target="_blank" rel="noopener noreferrer" className="rd-btn-tile rd-btn-tile--muted min-h-14">
         Личный кабинет
         <IconArrowUpRight size={18} className="shrink-0 text-[var(--rd-caption)]" />
@@ -226,12 +221,9 @@ function SubscriptionSkeleton() {
         <Skeleton className="h-5 w-40 rounded-lg" />
       </div>
       <Skeleton className="h-[112px] rounded-[var(--rd-radius-md)] sm:h-[124px]" />
-      <div className="flex flex-col gap-(--rd-space-item)">
-        <Skeleton className="h-16 rounded-[var(--rd-radius-control)]" />
-        <div className="grid grid-cols-2 gap-(--rd-space-item)">
-          <Skeleton className="h-14 rounded-[var(--rd-radius-control)]" />
-          <Skeleton className="h-14 rounded-[var(--rd-radius-control)]" />
-        </div>
+      <div className="grid grid-cols-1 gap-(--rd-space-item) sm:grid-cols-2">
+        <Skeleton className="h-14 rounded-[var(--rd-radius-control)]" />
+        <Skeleton className="h-14 rounded-[var(--rd-radius-control)]" />
       </div>
     </section>
   )

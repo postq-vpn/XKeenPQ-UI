@@ -125,7 +125,11 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
       coreVersions: getAppState().coreVersions,
       availableCores: data.cores || [],
     })
-    dispatch({ type: 'SET_SERVICE_STATUS', status: data.running ? 'running' : 'stopped' })
+    // Пока идёт включение или выключение, статус ставит тот, кто его начал: ответ опроса, отправленного
+    // до нажатия, иначе обрывал бы «Включаю…» (и анимацию запуска) раньше времени.
+    if (getAppState().serviceStatus !== 'pending') {
+      dispatch({ type: 'SET_SERVICE_STATUS', status: data.running ? 'running' : 'stopped' })
+    }
     return currentCore
   }, [dispatch])
 
@@ -343,8 +347,10 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
   const openLog = useCallback(() => setView('log'), [setView])
   const goHome = useCallback(() => {
     setView('servers')
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }, [setView])
+    // На телефоне логотип ведёт на раздел «Главная», как в кабинете; на десктопе разделы и так все видны.
+    if (mobileTab !== 'home') setMobileTab('home')
+    else window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [setView, mobileTab, setMobileTab])
   const techNavProps = {
     activeFile: view === 'files' ? activeFile : null,
     logActive: view === 'log',

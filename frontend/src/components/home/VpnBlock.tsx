@@ -1,7 +1,13 @@
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
-import { Check as IconCheck, Download as IconDownload, Power as IconPower, RefreshCw as IconRefresh } from 'lucide-react'
-import { Fragment, useEffect } from 'react'
+import {
+  Check as IconCheck,
+  Download as IconDownload,
+  Gauge as IconGauge,
+  Power as IconPower,
+  RefreshCw as IconRefresh,
+} from 'lucide-react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { apiCall } from '../../lib/api'
 import { useAppContext } from '../../lib/store'
 import type { SubscriptionsState } from '../../lib/useSubscriptions'
@@ -11,6 +17,7 @@ import { isNotRecommended, splitRecommended, withoutAutoServers } from '../modal
 import { activeServerTag, serverName, type PingResult } from '../modals/XraySubscriptions'
 import { splitServerName } from '../postq/ui'
 import { PostqMark } from '../ui/postq-logo'
+import { LiquidMark, type LiquidMarkHandle } from './LiquidMark'
 
 const STATUS_POLL_MS = 3000
 /** Пинг — реальный запрос через сервер (backend ping.rs): медленным считаем от 800 мс. */
@@ -51,18 +58,36 @@ export function VpnBlock({
     return () => clearInterval(timer)
   }, [serviceStatus, onRefreshStatus])
 
-  async function control(action: 'start' | 'stop' | 'hardRestart') {
+  // Пока VPN запускается из панели, на серой кнопке собирается розовый знак (Lottie) — в той кнопке,
+  // что сейчас на экране. Включился — кнопка розовеет, знак белый, от кнопки волна (.rd-sonar).
+  const [starting, setStarting] = useState<'hero' | 'card' | null>(null)
+  const liquidRef = useRef<LiquidMarkHandle>(null)
+  // Статичный знак сменил анимацию: появляется розовым и белеет вместе с фоном кнопки (.rd-power--from-liquid).
+  const [fromLiquid, setFromLiquid] = useState(false)
+
+  async function control(action: 'start' | 'stop') {
     const labels = {
       start: ['Включаю…', 'VPN включён'],
       stop: ['Выключаю…', 'VPN выключен'],
-      hardRestart: ['Перезапускаю…', 'VPN перезапущен'],
     } as const
+    setFromLiquid(false)
+    if (action === 'start') setStarting(matchMedia('(min-width: 1024px)').matches ? 'card' : 'hero')
     dispatch({ type: 'SET_SERVICE_STATUS', status: 'pending', pendingText: labels[action][0] })
     const result = await apiCall<any>('POST', 'control', { action }).catch((e) => ({
       success: false,
       error: e instanceof Error ? e.message : String(e),
     }))
-    showToast(result.success ? labels[action][1] : `${result.output || result.error}`, result.success ? 'success' : 'error')
+    // Запустился — сначала знак доигрывает до собранного, и только потом кнопка становится «включённой»:
+    // смена на статичный знак без скачка, где бы ни была анимация в момент ответа.
+    const liquid = action === 'start' && result.success ? liquidRef.current : null
+    if (liquid) await liquid.finish()
+    // Один id на все переключения: новое уведомление заменяет прежнее, а не встаёт под ним.
+    showToast(
+      { id: 'vpn-status', title: '', body: result.success ? labels[action][1] : `${result.output || result.error}` },
+      result.success ? 'success' : 'error'
+    )
+    setStarting(null)
+    if (liquid) setFromLiquid(true)
     if (action !== 'stop') dispatch({ type: 'SET_SERVICE_STATUS', status: result.success ? 'running' : 'stopped' })
     onRefreshStatus()
   }
@@ -80,36 +105,42 @@ export function VpnBlock({
 
   const dataState = isPending ? 'pending' : isRunning ? 'running' : 'stopped'
 
-  const powerButton = (hero: boolean) => (
-    <button
-      type="button"
-      aria-pressed={isRunning}
-      aria-label={isRunning ? 'Выключить VPN' : 'Включить VPN'}
-      title={isRunning ? 'Выключить VPN' : 'Включить VPN'}
-      className={cn('rd-power', hero && 'rd-power--hero')}
-      disabled={isPending}
-      onClick={() => void control(isRunning ? 'stop' : 'start')}
-    >
-      <span className="rd-sonar" aria-hidden>
-        <span />
-      </span>
-      {isPending ? (
-        <Spinner className={hero ? 'size-9' : 'size-7'} />
-      ) : (
-        // Выключен — значок питания; при включении он превращается в знак PostqVPN (globals.css, .rd-power__*).
-        <span className="rd-power__icons" aria-hidden>
-          <IconPower size={hero ? 40 : 30} strokeWidth={2.25} className="rd-power__off" />
-          <PostqMark width={hero ? 40 : 30} height={hero ? 43 : 32} className={cn('rd-power__on', !hero && 'md:h-[34px] md:w-8')} />
+  const powerButton = (hero: boolean) => {
+    const assembling = isPending && starting === (hero ? 'hero' : 'card')
+    return (
+      <button
+        type="button"
+        aria-pressed={isRunning}
+        aria-label={isRunning ? 'Выключить VPN' : 'Включить VPN'}
+        title={isRunning ? 'Выключить VPN' : 'Включить VPN'}
+        className={cn('rd-power', hero && 'rd-power--hero', fromLiquid && 'rd-power--from-liquid')}
+        disabled={isPending}
+        onClick={() => void control(isRunning ? 'stop' : 'start')}
+      >
+        <span className="rd-sonar" aria-hidden>
+          <span />
         </span>
-      )}
-    </button>
-  )
+        {assembling ? (
+          <LiquidMark ref={liquidRef} className={cn('text-[var(--rd-action)]', hero ? 'w-10' : 'w-[30px] md:w-8')} />
+        ) : isPending ? (
+          <Spinner className={hero ? 'size-9' : 'size-7'} />
+        ) : (
+          // Выключен — значок питания; при включении он превращается в знак PostqVPN (globals.css, .rd-power__*).
+          <span className="rd-power__icons" aria-hidden>
+            <IconPower size={hero ? 40 : 30} strokeWidth={2.25} className="rd-power__off" />
+            <PostqMark width={hero ? 40 : 30} height={hero ? 43 : 32} className={cn('rd-power__on', !hero && 'md:h-[34px] md:w-8')} />
+          </span>
+        )}
+      </button>
+    )
+  }
 
   return (
     <>
-      {/* Телефон и планшет: включение — отдельным блоком наверху, по центру. */}
+      {/* Телефон и планшет: включение — отдельным блоком наверху, по центру. Стеклянный, как нижнее меню,
+          и остаётся под шапкой при прокрутке (шапка — пилюли 56px). */}
       <section
-        className="rd-card rd-vpn-card flex flex-col items-center gap-(--rd-space-group) text-center lg:hidden"
+        className="rd-card rd-vpn-card rd-liquid-glass rd-vpn-card--pinned flex flex-col items-center gap-(--rd-space-group) text-center lg:hidden"
         data-state={dataState}
         aria-labelledby="vpn-title-compact"
       >
@@ -130,21 +161,7 @@ export function VpnBlock({
             </h2>
             <p className="rd-meta truncate">{caption}</p>
           </div>
-          <div className="flex shrink-0 items-center gap-(--rd-space-group)">
-            {isRunning && (
-              <button
-                type="button"
-                className="rd-icon-btn"
-                onClick={() => void control('hardRestart')}
-                disabled={isPending}
-                aria-label="Перезапустить VPN"
-                title="Перезапустить VPN"
-              >
-                <IconRefresh size={20} />
-              </button>
-            )}
-            {powerButton(false)}
-          </div>
+          {powerButton(false)}
         </div>
 
         {loading ? (
@@ -176,17 +193,18 @@ export function VpnBlock({
   )
 }
 
-/** «Авто, сейчас 🇳🇱 Нидерланды» или «Через 🇩🇪 Германия». */
+/** «Авто, сейчас 🇳🇱 Нидерланды» или «через 🇩🇪 Германия». */
 function describeRoute(sub: XraySubscription, current: Record<string, string>) {
   const tag = sub.primary ? activeServerTag(sub) : current[sub.tag]
   const name = tag ? splitServerName(serverName(sub, tag)).main : null
   if (!sub.primary) return name ? `Авто, сейчас ${name}` : 'Авто: самый быстрый рабочий сервер'
-  return name ? `Через ${name}` : null
+  return name ? `через ${name}` : null
 }
 
 /** Серверы подписки: «Авто» и серверы, российские — в конце отдельной группой. */
 function ServerPicker({ sub, state, withTitle }: { sub: XraySubscription; state: SubscriptionsState; withTitle: boolean }) {
-  const { savingServers, pings, ping, current, selectServer } = state
+  const { savingServers, pings, ping, current, selectServer, updatingTags, refresh } = state
+  const updating = updatingTags.includes(sub.tag)
   const all = withoutAutoServers(sub.server_list)
   const { recommended, notRecommended } = splitRecommended(all)
   const servers = [...recommended, ...notRecommended]
@@ -202,17 +220,30 @@ function ServerPicker({ sub, state, withTitle }: { sub: XraySubscription; state:
           {withTitle ? `Сервер · ${sub.title?.trim() || sub.tag}` : 'Сервер'}
           {busy && <Spinner className="size-4 text-[var(--rd-caption)]" />}
         </h3>
-        {all.length > 0 && (
+        <div className="flex shrink-0 items-center gap-(--rd-space-item)">
           <button
             type="button"
-            className="rd-link-action rd-meta flex items-center gap-1.5 text-[var(--rd-action)] disabled:opacity-50"
-            disabled={anyPinging}
-            onClick={() => void ping(all)}
+            className="rd-icon-btn"
+            disabled={updatingTags.length > 0}
+            onClick={() => void refresh(sub.tag)}
+            aria-label={updating ? 'Обновляю подписку' : 'Обновить подписку'}
+            title="Обновить подписку"
           >
-            {anyPinging && <Spinner className="size-4" />}
-            Проверить пинг
+            <IconRefresh size={20} className={cn(updating && 'animate-spin')} />
           </button>
-        )}
+          {all.length > 0 && (
+            <button
+              type="button"
+              className="rd-icon-btn"
+              disabled={anyPinging}
+              onClick={() => void ping(all)}
+              aria-label={anyPinging ? 'Проверяю пинг' : 'Проверить пинг'}
+              title="Проверить пинг"
+            >
+              {anyPinging ? <Spinner className="size-5" /> : <IconGauge size={20} />}
+            </button>
+          )}
+        </div>
       </div>
 
       {all.length === 0 ? (

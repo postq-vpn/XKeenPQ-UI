@@ -181,7 +181,12 @@ export function showToast(
 ) {
   const dispatch = useStore.getState().dispatch
   const id = typeof message === 'string' ? Math.random().toString(36).slice(2) : (message.id ?? Math.random().toString(36).slice(2))
-  if (typeof message !== 'string' && message.id) dispatch({ type: 'REMOVE_TOAST', id: message.id })
+  // Уведомление с тем же id (одно действие — «VPN включён/выключен») заменяет прежнее, а такое же
+  // по тексту не дублируется: иначе частые нажатия складывают стопку поверх интерфейса.
+  const body = typeof message === 'string' ? message : message.body
+  for (const t of useStore.getState().toasts) {
+    if (t.id === id || (t.body === body && t.type === type)) dispatch({ type: 'REMOVE_TOAST', id: t.id })
+  }
   const toast: ToastMessage =
     typeof message === 'string'
       ? { id, title: '', body: message, type }
@@ -195,7 +200,12 @@ export function showToast(
         }
 
   dispatch({ type: 'ADD_TOAST', toast })
-  if (!toast.persistent) setTimeout(() => dispatch({ type: 'REMOVE_TOAST', id }), 5000)
+  // Убираем именно это уведомление: если его уже заменили новым с тем же id, новое живёт свои 5 секунд.
+  if (!toast.persistent) {
+    setTimeout(() => {
+      if (useStore.getState().toasts.includes(toast)) dispatch({ type: 'REMOVE_TOAST', id })
+    }, 5000)
+  }
 }
 
 export function useAppContext(): { state: CoreState; dispatch: (action: AppAction) => void; showToast: ShowToastFn }

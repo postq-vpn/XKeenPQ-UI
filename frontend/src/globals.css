@@ -381,6 +381,15 @@
     @apply font-sans;
     scrollbar-color: var(--border) transparent;
   }
+  /* Телефон и планшет: полосы прокрутки у страницы нет, как в приложении. */
+  @media (max-width: 1023.98px) {
+    html {
+      scrollbar-width: none;
+    }
+    html::-webkit-scrollbar {
+      display: none;
+    }
+  }
 }
 
 /* ─── Log badges (shadcn Badge style) ─── */
@@ -733,6 +742,12 @@
   isolation: isolate;
   overflow: hidden;
 }
+/* Блок включения на телефоне держится под шапкой (пилюли 56px) при прокрутке. */
+.rd-vpn-card--pinned {
+  position: sticky;
+  top: calc(env(safe-area-inset-top, 0px) + var(--rd-space-grid) + 56px + var(--rd-space-head));
+  z-index: 30;
+}
 
 .rd-power {
   position: relative;
@@ -1001,4 +1016,22 @@
 .rd-settings-group [data-slot='input'],
 .rd-settings-group [data-slot='input-group'] {
   background: var(--rd-surface) !important;
+}
+
+/* Сборка знака при включении VPN (LiquidMark): Lottie красит знак розовым — в кнопке он цвета значка. */
+.rd-liquid-mark {
+  pointer-events: none;
+}
+.rd-liquid-mark path {
+  fill: currentColor;
+}
+/* Смена анимации на статичный знак: он встаёт на место собранного розового и белеет вместе с фоном кнопки
+   (та же длительность, что у перехода фона .rd-power). */
+.rd-power--from-liquid .rd-power__on {
+  animation: rd-mark-from-liquid 0.35s ease both;
+}
+@keyframes rd-mark-from-liquid {
+  from {
+    color: var(--rd-action);
+  }
 }
