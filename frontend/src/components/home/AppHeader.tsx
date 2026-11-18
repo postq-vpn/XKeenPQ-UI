@@ -33,7 +33,7 @@ export function AppHeader({
   const hasUpdate = isOutdatedUI || isOutdatedCore
 
   return (
-    <header className="sticky top-[calc(var(--rd-space-grid)+env(safe-area-inset-top,0px))] z-40 mb-[calc(var(--rd-space-head)-var(--rd-space-grid))] flex items-center gap-(--rd-space-grid)">
+    <header className="sticky top-[calc(var(--rd-space-grid)+env(safe-area-inset-top,0px))] z-40 mb-[calc(var(--rd-space-head)-var(--rd-space-grid))] flex items-center gap-(--rd-space-grid) max-lg:mb-0">
       <div className="mr-auto flex min-w-0 items-center gap-(--rd-space-grid)">
         {onBack && (
           // Как в кабинете (BackButton, variant mobile): квадратная пилюля со стрелкой, слово — только для экранного диктора.

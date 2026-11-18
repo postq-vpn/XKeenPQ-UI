@@ -119,6 +119,10 @@ export function splitFlag(name: string) {
 
 /**
  * Круглый флаг, как в больших VPN-приложениях: эмодзи-флаг крупнее круга, края обрезаются.
+ * В шрифте флаг во всю ширину глифа и 0,72 его высоты (при 38px — 27,5px на круг 24px). Базовую
+ * линию задаёт основной шрифт (у шрифта флагов unicode-range без пробела): браузер берёт метрики
+ * hhea GT Eesti (900/260 из 1000), базовая линия на 0,82em, и центр флага выше середины на 0,055em —
+ * на столько он и опущен.
  * Без флага — глобус, чтобы названия в списке стояли ровно.
  */
 export function Flag({ flag }: { flag: string | null }) {
@@ -127,7 +131,7 @@ export function Flag({ flag }: { flag: string | null }) {
       aria-hidden
       className="flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--rd-chip)] text-[var(--rd-caption)]"
     >
-      {flag ? <span className="text-[34px] leading-none">{flag}</span> : <IconGlobe size={14} />}
+      {flag ? <span className="block h-[1em] translate-y-[0.055em] text-[38px] leading-none">{flag}</span> : <IconGlobe size={14} />}
     </span>
   )
 }

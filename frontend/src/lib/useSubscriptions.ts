@@ -128,13 +128,18 @@ export function useSubscriptions({
     }
   }
 
-  async function refresh(tag?: string) {
+  /** Обновляет подписки; возвращает свежий список (или прежний, если роутер его не прислал). */
+  async function refresh(tag?: string): Promise<XraySubscription[]> {
     setUpdatingTags(tag ? [tag] : subs.map((s) => s.tag))
+    let list = subs
     try {
       const res = await apiCall<ApiResult & { changed?: boolean; subscriptions?: XraySubscription[] }>('POST', 'subscriptions/refresh', {
         tag,
       })
-      if (res.subscriptions) setSubs(res.subscriptions)
+      if (res.subscriptions) {
+        setSubs(res.subscriptions)
+        list = res.subscriptions
+      }
       if (!res.success) throw new Error(res.error)
       showToast(tag ? 'Подписка обновлена' : 'Подписки обновлены')
       if (res.restart_error) showToast(`Не удалось перезапустить Xray: ${res.restart_error}`, 'error')
@@ -144,6 +149,7 @@ export function useSubscriptions({
     } finally {
       setUpdatingTags([])
     }
+    return list
   }
 
   async function remove(tag: string) {

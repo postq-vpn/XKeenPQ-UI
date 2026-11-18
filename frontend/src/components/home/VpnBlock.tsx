@@ -58,6 +58,22 @@ export function VpnBlock({
   const liquidRef = useRef<LiquidMarkHandle>(null)
   // Статичный знак сменил анимацию: появляется розовым и белеет вместе с фоном кнопки (.rd-power--from-liquid).
   const [fromLiquid, setFromLiquid] = useState(false)
+  // Класс снимается, как только анимация доиграла: иначе она повторялась бы при каждом показе блока
+  // после скрытой вкладки (браузер перезапускает CSS-анимации у элементов, вышедших из display: none).
+  useEffect(() => {
+    if (!fromLiquid) return
+    const timer = setTimeout(() => setFromLiquid(false), 400)
+    return () => clearTimeout(timer)
+  }, [fromLiquid])
+  // Волна «сонара» — только в момент включения (и при загрузке с включённым VPN), а не при каждом
+  // показе блока: метка живёт столько, сколько длится волна (globals.css, .rd-vpn-card[data-sonar]).
+  const [sonar, setSonar] = useState(false)
+  useEffect(() => {
+    if (!isRunning) return
+    setSonar(true)
+    const timer = setTimeout(() => setSonar(false), 1500)
+    return () => clearTimeout(timer)
+  }, [isRunning])
 
   async function control(action: 'start' | 'stop') {
     const labels = {
@@ -101,6 +117,10 @@ export function VpnBlock({
 
   const dataState = isPending ? 'pending' : isRunning ? 'running' : 'stopped'
 
+  const morphRef = useRef<HTMLElement>(null)
+  const morphSentinelRef = useRef<HTMLDivElement>(null)
+  useCollapseOnScroll(morphRef, morphSentinelRef)
+
   const powerButton = (hero: boolean) => {
     const assembling = isPending && starting === (hero ? 'hero' : 'card')
     return (
@@ -109,47 +129,55 @@ export function VpnBlock({
         aria-pressed={isRunning}
         aria-label={isRunning ? 'Выключить VPN' : 'Включить VPN'}
         title={isRunning ? 'Выключить VPN' : 'Включить VPN'}
-        className={cn('rd-power', hero && 'rd-power--hero', fromLiquid && 'rd-power--from-liquid')}
+        className={cn('rd-power', hero && 'rd-power--hero rd-power--morph', fromLiquid && 'rd-power--from-liquid')}
         disabled={isPending}
         onClick={() => void control(isRunning ? 'stop' : 'start')}
       >
         <span className="rd-sonar" aria-hidden>
           <span />
         </span>
-        {assembling ? (
-          <LiquidMark ref={liquidRef} className={cn('text-[var(--rd-action)]', hero ? 'w-10' : 'w-[30px] md:w-8')} />
-        ) : isPending ? (
-          <Spinner className={hero ? 'size-9' : 'size-7'} />
-        ) : (
-          // Выключен — значок питания; при включении он превращается в знак PostqVPN (globals.css, .rd-power__*).
-          <span className="rd-power__icons" aria-hidden>
-            <IconPower size={hero ? 40 : 30} strokeWidth={2.25} className="rd-power__off" />
-            <PostqMark width={hero ? 40 : 30} height={hero ? 43 : 32} className={cn('rd-power__on', !hero && 'md:h-[34px] md:w-8')} />
-          </span>
-        )}
+        <span className="rd-power__scale">
+          {assembling ? (
+            <LiquidMark ref={liquidRef} className={cn('text-[var(--rd-action)]', hero ? 'w-10' : 'w-[30px] md:w-8')} />
+          ) : isPending ? (
+            <Spinner className={hero ? 'size-9' : 'size-7'} />
+          ) : (
+            // Выключен — значок питания; при включении он превращается в знак PostqVPN (globals.css, .rd-power__*).
+            <span className="rd-power__icons" aria-hidden>
+              <IconPower size={hero ? 40 : 30} strokeWidth={2.25} className="rd-power__off" />
+              <PostqMark width={hero ? 40 : 30} height={hero ? 43 : 32} className={cn('rd-power__on', !hero && 'md:h-[34px] md:w-8')} />
+            </span>
+          )}
+        </span>
       </button>
     )
   }
 
   return (
     <>
-      {/* Телефон и планшет: включение — отдельным блоком наверху, по центру. Стеклянный, как нижнее меню,
-          и остаётся под шапкой при прокрутке (шапка — пилюли 56px). */}
-      <section
-        className="rd-card rd-vpn-card rd-liquid-glass rd-vpn-card--pinned flex flex-col items-center gap-(--rd-space-group) text-center lg:hidden"
-        data-state={dataState}
-        aria-labelledby="vpn-title-compact"
-      >
-        {powerButton(true)}
-        <div className="flex max-w-full min-w-0 flex-col items-center gap-(--rd-space-title)">
-          <h2 id="vpn-title-compact" className="rd-title" aria-live="polite">
-            {title}
-          </h2>
-          <p className="rd-meta text-pretty">{caption}</p>
+      {/* Телефон и планшет: включение — отдельным блоком наверху, стеклянный, остаётся под шапкой.
+          При прокрутке сворачивается, как шапка профиля в Telegram: кнопка уменьшается и уезжает вправо,
+          текст — влево (globals.css, .rd-vpn-morph). Место в вёрстке не меняется, список уходит под стекло. */}
+      {/* Метка исходного места блока; отрицательный отступ гасит промежуток колонки после неё */}
+      <div ref={morphSentinelRef} aria-hidden className="-mb-(--rd-space-grid) lg:hidden" />
+      <section ref={morphRef} className="rd-vpn-morph rd-vpn-card--pinned lg:hidden" aria-labelledby="vpn-title-compact">
+        <div className="rd-card rd-vpn-card rd-liquid-glass rd-vpn-morph__card" data-state={dataState} data-sonar={sonar || undefined}>
+          <div className="rd-vpn-morph__power">{powerButton(true)}</div>
+          <div className="rd-vpn-morph__text">
+            <h2 id="vpn-title-compact" className="rd-title rd-vpn-morph__line rd-vpn-morph__title" aria-live="polite">
+              {title}
+            </h2>
+            <p className="rd-meta rd-vpn-morph__line rd-vpn-morph__caption">{caption}</p>
+          </div>
         </div>
       </section>
 
-      <section className="rd-card rd-vpn-card flex flex-col gap-(--rd-space-card)" data-state={dataState} aria-labelledby="vpn-title">
+      <section
+        className="rd-card rd-vpn-card flex flex-col gap-(--rd-space-card)"
+        data-state={dataState}
+        data-sonar={sonar || undefined}
+        aria-labelledby="vpn-title"
+      >
         <div className="flex items-center justify-between gap-(--rd-space-group) max-lg:hidden">
           <div className="flex min-w-0 flex-col gap-(--rd-space-title)">
             <h2 id="vpn-title" className="rd-title" aria-live="polite">
@@ -195,6 +223,86 @@ function describeRoute(sub: XraySubscription, current: Record<string, string>) {
   const name = tag ? splitServerName(serverName(sub, tag)).main : null
   if (!sub.primary) return name ? `Авто, сейчас ${name}` : 'Авто: самый быстрый рабочий сервер'
   return name ? `через ${name}` : null
+}
+
+/** Высота свёрнутого блока включения (globals.css, .rd-vpn-morph). */
+const MORPH_CLOSED_PX = 80
+/** Сколько ждать после прокрутки, прежде чем довести блок до ближайшего состояния. */
+const MORPH_SNAP_MS = 140
+
+/**
+ * Прогресс сворачивания блока включения (0 — развёрнут, 1 — свёрнут) пишется в `--p`: столько,
+ * сколько страница прокручена после того, как блок прилип под шапкой. Как в Telegram, движение идёт
+ * за пальцем, а остановка посередине доводит блок до ближайшего края.
+ */
+function useCollapseOnScroll(ref: React.RefObject<HTMLElement | null>, sentinelRef: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    let frame = 0
+    let snapTimer: ReturnType<typeof setTimeout> | undefined
+    // Пока палец на экране, не доводим: блок дёрнулся бы под пальцем
+    let touching = false
+
+    const measure = () => {
+      const el = ref.current
+      const sentinel = sentinelRef.current
+      // На компьютере блока нет (display: none)
+      if (!el || !sentinel || el.offsetParent === null) return null
+      const range = el.offsetHeight - MORPH_CLOSED_PX
+      const passed = parseFloat(getComputedStyle(el).top) - sentinel.getBoundingClientRect().top
+      return { el, range, passed, p: range > 0 ? Math.min(1, Math.max(0, passed / range)) : 0 }
+    }
+
+    const update = () => {
+      frame = 0
+      const m = measure()
+      if (m) m.el.style.setProperty('--p', m.p.toFixed(4))
+    }
+
+    const snap = () => {
+      if (touching) return
+      const m = measure()
+      if (!m || m.p <= 0 || m.p >= 1) return
+      const target = m.p < 0.5 ? window.scrollY - m.passed : window.scrollY + (m.range - m.passed)
+      window.scrollTo({ top: target, behavior: 'smooth' })
+    }
+
+    const scheduleSnap = () => {
+      clearTimeout(snapTimer)
+      snapTimer = setTimeout(snap, MORPH_SNAP_MS)
+    }
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(update)
+      scheduleSnap()
+    }
+    const onTouchStart = () => {
+      touching = true
+    }
+    const onTouchEnd = () => {
+      touching = false
+      scheduleSnap()
+    }
+
+    update()
+    // Вкладки на телефоне скрывают блок (display: none) и сбрасывают прокрутку наверх — событий прокрутки
+    // при возврате нет, поэтому пересчитываем, когда блок снова получает размер
+    const resize = new ResizeObserver(() => update())
+    if (ref.current) resize.observe(ref.current)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+    window.addEventListener('touchstart', onTouchStart, { passive: true })
+    window.addEventListener('touchend', onTouchEnd, { passive: true })
+    window.addEventListener('touchcancel', onTouchEnd, { passive: true })
+    return () => {
+      cancelAnimationFrame(frame)
+      clearTimeout(snapTimer)
+      resize.disconnect()
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
+      window.removeEventListener('touchstart', onTouchStart)
+      window.removeEventListener('touchend', onTouchEnd)
+      window.removeEventListener('touchcancel', onTouchEnd)
+    }
+  }, [ref, sentinelRef])
 }
 
 /** Серверы подписки: «Авто» и серверы, российские — в конце отдельной группой. */

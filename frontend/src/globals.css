@@ -411,8 +411,10 @@
   cursor: pointer;
   transition: opacity 0.15s;
 }
-.log-badge:hover {
-  opacity: 0.8;
+@media (hover: hover) {
+  .log-badge:hover {
+    opacity: 0.8;
+  }
 }
 .log-badge-debug {
   color: var(--log-badge-debug-color);
@@ -549,8 +551,10 @@
     line-height: 20px;
     font-weight: 500;
   }
-  .rd-btn:hover:not(:disabled) {
-    background: var(--rd-action-hover);
+  @media (hover: hover) {
+    .rd-btn:hover:not(:disabled) {
+      background: var(--rd-action-hover);
+    }
   }
 
   /* Вторичное (розовая подложка). */
@@ -564,8 +568,10 @@
     line-height: 20px;
     font-weight: 500;
   }
-  .rd-btn-soft:hover:not(:disabled) {
-    background: var(--rd-action-soft-hover);
+  @media (hover: hover) {
+    .rd-btn-soft:hover:not(:disabled) {
+      background: var(--rd-action-soft-hover);
+    }
   }
 
   /* Большая мягкая плитка-кнопка — «Обновить подписку», «Скачать лог». */
@@ -581,15 +587,19 @@
     white-space: normal;
     text-align: center;
   }
-  .rd-btn-tile:hover:not(:disabled) {
-    background: var(--rd-action-soft-hover);
+  @media (hover: hover) {
+    .rd-btn-tile:hover:not(:disabled) {
+      background: var(--rd-action-soft-hover);
+    }
   }
   .rd-btn-tile.rd-btn-tile--muted {
     background: var(--rd-chip);
     color: var(--rd-body);
   }
-  .rd-btn-tile.rd-btn-tile--muted:hover:not(:disabled) {
-    background: var(--rd-chip-hover);
+  @media (hover: hover) {
+    .rd-btn-tile.rd-btn-tile--muted:hover:not(:disabled) {
+      background: var(--rd-chip-hover);
+    }
   }
 
   /* Пилюля в шапке: тема, настройки, версия. */
@@ -610,8 +620,10 @@
     backdrop-filter: blur(24px);
     will-change: backdrop-filter;
   }
-  .rd-pill:hover:not(:disabled) {
-    color: var(--rd-heading);
+  @media (hover: hover) {
+    .rd-pill:hover:not(:disabled) {
+      color: var(--rd-heading);
+    }
   }
   /* Телефоны: жидкое стекло — то же, что rd-liquid-glass в postq-site и кабинете. */
   @media (max-width: 639.98px) {
@@ -661,9 +673,11 @@
       background-color 0.15s ease,
       color 0.15s ease;
   }
-  .rd-icon-btn:hover:not(:disabled) {
-    background: var(--rd-chip-hover);
-    color: var(--rd-heading);
+  @media (hover: hover) {
+    .rd-icon-btn:hover:not(:disabled) {
+      background: var(--rd-chip-hover);
+      color: var(--rd-heading);
+    }
   }
   .rd-icon-btn:disabled {
     cursor: not-allowed;
@@ -675,8 +689,10 @@
     cursor: pointer;
     transition: color 0.15s ease;
   }
-  .rd-link-action:hover {
-    color: var(--rd-action-hover);
+  @media (hover: hover) {
+    .rd-link-action:hover {
+      color: var(--rd-action-hover);
+    }
   }
 
   .rd-btn:focus-visible,
@@ -709,13 +725,20 @@
       background-color 0.15s ease,
       border-color 0.15s ease;
   }
-  .rd-server:hover:not(:disabled) {
-    background: var(--rd-chip-hover);
+  @media (hover: hover) {
+    .rd-server:hover:not(:disabled) {
+      background: var(--rd-chip-hover);
+    }
   }
-  .rd-server[aria-checked='true'],
-  .rd-server[aria-checked='true']:hover:not(:disabled) {
+  .rd-server[aria-checked='true'] {
     background: var(--rd-action-soft);
     color: var(--rd-on-soft);
+  }
+  @media (hover: hover) {
+    .rd-server[aria-checked='true']:hover:not(:disabled) {
+      background: var(--rd-action-soft);
+      color: var(--rd-on-soft);
+    }
   }
   /* Пинг медленного или неотвечающего сервера сохраняет свой цвет */
   .rd-server[aria-checked='true'] .rd-meta:not([class*='warn']):not([class*='error']),
@@ -745,11 +768,76 @@
   isolation: isolate;
   overflow: hidden;
 }
-/* Блок включения на телефоне держится под шапкой (пилюли 56px) при прокрутке. */
+/* Блок включения на телефоне держится под шапкой (пилюли 56px) при прокрутке — с тем же отступом
+   от шапки, что и без прокрутки: промежуток сетки (на телефоне под шапкой нет своего отступа). */
 .rd-vpn-card--pinned {
   position: sticky;
-  top: calc(env(safe-area-inset-top, 0px) + var(--rd-space-grid) + 56px + var(--rd-space-head));
+  top: calc(env(safe-area-inset-top, 0px) + var(--rd-space-grid) + 56px + var(--rd-space-grid));
   z-index: 30;
+}
+
+/* Блок включения на телефоне сворачивается при прокрутке, как шапка профиля в Telegram (VpnBlock,
+   useCollapseOnScroll): --p от 0 (кнопка 96px по центру, текст под ней) до 1 (строка 80px: текст
+   слева, кнопка 56px справа). Внешний блок держит место в вёрстке, стекло внутри меняет высоту. */
+.rd-vpn-morph {
+  --p: 0;
+  --pad: var(--rd-space-card);
+  --s: calc(96px - 40px * var(--p));
+  --h-open: calc(2 * var(--pad) + 168px);
+  height: var(--h-open);
+  pointer-events: none;
+}
+.rd-vpn-morph > .rd-vpn-morph__card {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: calc(var(--h-open) - (var(--h-open) - 80px) * var(--p));
+  padding: 0;
+  pointer-events: auto;
+}
+.rd-vpn-morph__power {
+  position: absolute;
+  top: calc(var(--pad) * (1 - var(--p)) + 12px * var(--p));
+  left: calc((100% - var(--s)) * (1 - var(--p)) / 2 + (100% - var(--pad) - var(--s)) * var(--p));
+}
+.rd-power.rd-power--hero.rd-power--morph {
+  width: var(--s);
+  height: var(--s);
+}
+.rd-power__scale {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.rd-power--morph .rd-power__scale {
+  transform: scale(calc(1 - 0.4 * var(--p, 0)));
+}
+/* Текст: развёрнут — по центру под кнопкой, свёрнут — слева от неё. Каждая строка сдвигается
+   от центра к левому краю через left + translateX, так что движение непрерывное. */
+.rd-vpn-morph__text {
+  position: absolute;
+  inset-block: 0;
+  /* Слой текста во всю высоту карточки лежит поверх кнопки — нажатия должны проходить к ней */
+  pointer-events: none;
+  left: var(--pad);
+  width: calc(100% - 2 * var(--pad) - (var(--s) + 16px) * var(--p));
+}
+.rd-vpn-morph__line {
+  position: absolute;
+  left: calc(50% * (1 - var(--p)));
+  max-width: 100%;
+  transform: translateX(calc(-50% * (1 - var(--p))));
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.rd-title.rd-vpn-morph__title {
+  top: calc((var(--pad) + 112px) * (1 - var(--p)) + 16px * var(--p));
+  font-size: calc(28px - 8px * var(--p));
+  line-height: calc(32px - 6px * var(--p));
+}
+.rd-vpn-morph__caption {
+  top: calc((var(--pad) + 148px) * (1 - var(--p)) + 44px * var(--p));
 }
 
 .rd-power {
@@ -781,18 +869,22 @@
   width: 96px;
   height: 96px;
 }
-.rd-power:hover:not(:disabled) {
-  background: var(--rd-chip-hover);
-  color: var(--rd-heading);
+@media (hover: hover) {
+  .rd-power:hover:not(:disabled) {
+    background: var(--rd-chip-hover);
+    color: var(--rd-heading);
+  }
 }
 .rd-power[aria-pressed='true'] {
   background: var(--rd-action);
   color: var(--rd-on-action);
   box-shadow: 0 8px 24px rgba(255, 33, 129, 0.32);
 }
-.rd-power[aria-pressed='true']:hover:not(:disabled) {
-  background: var(--rd-action-hover);
-  color: var(--rd-on-action);
+@media (hover: hover) {
+  .rd-power[aria-pressed='true']:hover:not(:disabled) {
+    background: var(--rd-action-hover);
+    color: var(--rd-on-action);
+  }
 }
 .rd-power:active:not(:disabled) {
   transform: scale(0.95);
@@ -855,8 +947,9 @@
     transparent 100%
   );
 }
-/* Одна волна в момент включения (и при загрузке страницы с включённым VPN), дальше тихо. */
-.rd-vpn-card[data-state='running'] .rd-sonar > span:first-child {
+/* Одна волна в момент включения (и при загрузке страницы с включённым VPN), дальше тихо. Метку
+   data-sonar VpnBlock ставит на время волны, чтобы она не повторялась при каждом показе блока. */
+.rd-vpn-card[data-state='running'][data-sonar] .rd-sonar > span:first-child {
   animation: rd-sonar-once 1.4s cubic-bezier(0.22, 1, 0.36, 1) 1 both;
 }
 @keyframes rd-sonar-once {
@@ -961,8 +1054,35 @@
     transform 0.45s cubic-bezier(0.32, 0.72, 0, 1),
     opacity 0.2s ease;
 }
+/* Иконка раздела: контурная у обычного, залитая у выбранного. Меняются с той же длительностью и
+   кривой, что едет подложка: заливка «прибывает» вместе с ней. */
+.rd-tab-icon {
+  display: grid;
+  width: 22px;
+  height: 22px;
+}
+.rd-tab-icon > * {
+  grid-area: 1 / 1;
+  transition:
+    opacity 0.45s cubic-bezier(0.32, 0.72, 0, 1),
+    transform 0.45s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.rd-tab-icon__filled {
+  display: flex;
+  opacity: 0;
+  transform: scale(0.8);
+}
+.rd-tab-icon[data-active] .rd-tab-icon__filled {
+  opacity: 1;
+  transform: scale(1);
+}
+.rd-tab-icon[data-active] .rd-tab-icon__outline {
+  opacity: 0;
+  transform: scale(1.1);
+}
 @media (prefers-reduced-motion: reduce) {
-  .rd-liquid-glass__slider {
+  .rd-liquid-glass__slider,
+  .rd-tab-icon > * {
     transition: none;
   }
 }
