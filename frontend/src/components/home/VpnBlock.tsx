@@ -231,39 +231,59 @@ const MORPH_CLOSED_PX = 80
 const MORPH_SNAP_MS = 140
 
 /**
- * Прогресс сворачивания блока включения (0 — развёрнут, 1 — свёрнут) пишется в `--p`: столько,
- * сколько страница прокручена после того, как блок прилип под шапкой. Как в Telegram, движение идёт
- * за пальцем, а остановка посередине доводит блок до ближайшего края.
+ * Сворачивание блока включения при прокрутке (0 — развёрнут, 1 — свёрнут): столько, сколько страница
+ * прокручена после того, как блок прилип под шапкой. Движение идёт за пальцем, а остановка посередине
+ * доводит блок до ближайшего края.
+ *
+ * Где браузер умеет анимацию от прокрутки, её ведёт CSS (globals.css, .rd-vpn-morph--css), а скрипт
+ * только задаёт её границы. Иначе прогресс пишется в `--p` — на кадре прокрутки только арифметика от
+ * scrollY: где блок прилипает, измеряется заранее (при загрузке и при смене размеров страницы).
  */
 function useCollapseOnScroll(ref: React.RefObject<HTMLElement | null>, sentinelRef: React.RefObject<HTMLElement | null>) {
   useEffect(() => {
     let frame = 0
     let snapTimer: ReturnType<typeof setTimeout> | undefined
+    // scrollY, с которого блок прилипает, и сколько прокрутки занимает сворачивание
+    let start = 0
+    let range = 0
+    let visible = false
+    let lastP = -1
     // Пока палец на экране, не доводим: блок дёрнулся бы под пальцем
     let touching = false
+    const cssDriven = CSS.supports('animation-timeline: scroll()')
+    if (cssDriven) ref.current?.classList.add('rd-vpn-morph--css')
 
     const measure = () => {
       const el = ref.current
       const sentinel = sentinelRef.current
-      // На компьютере блока нет (display: none)
-      if (!el || !sentinel || el.offsetParent === null) return null
-      const range = el.offsetHeight - MORPH_CLOSED_PX
-      const passed = parseFloat(getComputedStyle(el).top) - sentinel.getBoundingClientRect().top
-      return { el, range, passed, p: range > 0 ? Math.min(1, Math.max(0, passed / range)) : 0 }
+      // На компьютере и на других вкладках блока нет (display: none)
+      visible = !!el && !!sentinel && el.offsetParent !== null
+      if (!visible || !el || !sentinel) return
+      const stickyTop = parseFloat(getComputedStyle(el).top) || 0
+      start = sentinel.getBoundingClientRect().top + window.scrollY - stickyTop
+      range = el.offsetHeight - MORPH_CLOSED_PX
+      if (cssDriven) {
+        el.style.setProperty('--morph-start', `${Math.max(0, start)}px`)
+        el.style.setProperty('--morph-end', `${Math.max(0, start) + Math.max(1, range)}px`)
+      }
     }
+
+    const progress = () => (range > 0 ? Math.min(1, Math.max(0, (window.scrollY - start) / range)) : 0)
 
     const update = () => {
       frame = 0
-      const m = measure()
-      if (m) m.el.style.setProperty('--p', m.p.toFixed(4))
+      if (cssDriven || !visible || !ref.current) return
+      const p = Math.round(progress() * 1000) / 1000
+      if (p === lastP) return
+      lastP = p
+      ref.current.style.setProperty('--p', String(p))
     }
 
     const snap = () => {
-      if (touching) return
-      const m = measure()
-      if (!m || m.p <= 0 || m.p >= 1) return
-      const target = m.p < 0.5 ? window.scrollY - m.passed : window.scrollY + (m.range - m.passed)
-      window.scrollTo({ top: target, behavior: 'smooth' })
+      if (!visible || touching) return
+      const p = progress()
+      if (p <= 0 || p >= 1) return
+      window.scrollTo({ top: p < 0.5 ? start : start + range, behavior: 'smooth' })
     }
 
     const scheduleSnap = () => {
@@ -271,7 +291,7 @@ function useCollapseOnScroll(ref: React.RefObject<HTMLElement | null>, sentinelR
       snapTimer = setTimeout(snap, MORPH_SNAP_MS)
     }
     const onScroll = () => {
-      if (!frame) frame = requestAnimationFrame(update)
+      if (!cssDriven && !frame) frame = requestAnimationFrame(update)
       scheduleSnap()
     }
     const onTouchStart = () => {
@@ -282,13 +302,18 @@ function useCollapseOnScroll(ref: React.RefObject<HTMLElement | null>, sentinelR
       scheduleSnap()
     }
 
-    update()
-    // Вкладки на телефоне скрывают блок (display: none) и сбрасывают прокрутку наверх — событий прокрутки
-    // при возврате нет, поэтому пересчитываем, когда блок снова получает размер
-    const resize = new ResizeObserver(() => update())
+    const remeasure = () => {
+      measure()
+      lastP = -1
+      update()
+    }
+
+    remeasure()
+    // Блок снова показан (вкладки на телефоне) или страница поменяла высоту — перемеряем
+    const resize = new ResizeObserver(remeasure)
     if (ref.current) resize.observe(ref.current)
+    resize.observe(document.body)
     window.addEventListener('scroll', onScroll, { passive: true })
-    window.addEventListener('resize', onScroll)
     window.addEventListener('touchstart', onTouchStart, { passive: true })
     window.addEventListener('touchend', onTouchEnd, { passive: true })
     window.addEventListener('touchcancel', onTouchEnd, { passive: true })
@@ -297,7 +322,6 @@ function useCollapseOnScroll(ref: React.RefObject<HTMLElement | null>, sentinelR
       clearTimeout(snapTimer)
       resize.disconnect()
       window.removeEventListener('scroll', onScroll)
-      window.removeEventListener('resize', onScroll)
       window.removeEventListener('touchstart', onTouchStart)
       window.removeEventListener('touchend', onTouchEnd)
       window.removeEventListener('touchcancel', onTouchEnd)
