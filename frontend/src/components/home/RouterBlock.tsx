@@ -1,3 +1,4 @@
+import { ArrowUpRight as IconArrowUpRight } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { apiCall } from '../../lib/api'
 import { useRouterDevice } from '../modals/XraySubscriptions'
@@ -32,22 +33,34 @@ export function RouterBlock() {
     }
   }, [])
 
-  const memPercent = stats?.memoryTotal ? (stats.memoryUsed / stats.memoryTotal) * 100 : 0
-
   return (
     <section className="rd-card flex flex-col gap-(--rd-space-card)" aria-labelledby="router-title">
       <div className="flex flex-col gap-(--rd-space-title)">
         <h2 id="router-title" className="rd-section">
-          {device?.model || 'Роутер'}
+          {/* Панель работает на самом роутере: его веб-интерфейс — тот же адрес без порта панели */}
+          <a
+            href={`${location.protocol}//${location.hostname}/`}
+            target="_blank"
+            rel="noreferrer"
+            title="Открыть настройки роутера"
+            className="group inline-flex items-center gap-1.5"
+          >
+            {device?.model || 'Роутер'}
+            <IconArrowUpRight
+              size={18}
+              className="shrink-0 text-[var(--rd-caption)] transition-colors duration-150 ease-[ease] group-hover:text-[var(--rd-heading)]"
+            />
+          </a>
         </h2>
         {device?.os_version && <p className="rd-meta">Прошивка {device.os_version}</p>}
       </div>
-      <dl className="flex flex-col gap-(--rd-space-group)">
-        <Row label="Процессор" value={stats ? `${stats.cpuUsage.toFixed(0)}%` : '—'} percent={stats?.cpuUsage ?? 0} />
-        <Row
+      <dl className="grid grid-cols-2 gap-(--rd-space-item)">
+        <LoadTile label="Процессор" value={stats ? `${stats.cpuUsage.toFixed(0)}%` : '—'} percent={stats?.cpuUsage ?? 0} />
+        <LoadTile
           label="Память"
-          value={stats ? `${Math.round(stats.memoryUsed / MB)} из ${Math.round(stats.memoryTotal / MB)} МБ` : '—'}
-          percent={memPercent}
+          value={stats ? `${Math.round(stats.memoryUsed / MB)} МБ` : '—'}
+          extra={stats ? `из ${Math.round(stats.memoryTotal / MB)}` : undefined}
+          percent={stats?.memoryTotal ? (stats.memoryUsed / stats.memoryTotal) * 100 : 0}
         />
       </dl>
       <Ipv6Setting />
@@ -55,12 +68,16 @@ export function RouterBlock() {
   )
 }
 
-function Row({ label, value, percent }: { label: string; value: string; percent: number }) {
+/** Плитка загрузки: значение и полоса. */
+function LoadTile({ label, value, extra, percent }: { label: string; value: string; extra?: string; percent: number }) {
   return (
-    <div className="flex flex-col gap-(--rd-space-item)">
-      <div className="flex items-baseline justify-between gap-(--rd-space-group)">
-        <dt className="rd-body text-[var(--rd-body)]">{label}</dt>
-        <dd className="rd-body font-medium text-[var(--rd-heading)]">{value}</dd>
+    <div className="flex min-w-0 flex-col gap-3 rounded-[var(--rd-radius-md)] bg-[var(--rd-field)] p-4">
+      <div className="flex min-w-0 flex-col gap-1">
+        <dt className="rd-meta">{label}</dt>
+        <dd className="flex min-w-0 items-baseline gap-1.5">
+          <span className="rd-value text-[var(--rd-heading)]">{value}</span>
+          {extra && <span className="rd-meta truncate">{extra}</span>}
+        </dd>
       </div>
       <ProgressTrack percent={percent} label={label} />
     </div>

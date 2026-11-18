@@ -233,7 +233,16 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
   const used = (info?.upload ?? 0) + (info?.download ?? 0)
   const tabs = [
     { id: 'form' as const, label: 'Настройки' },
-    { id: 'servers' as const, label: serverCount ? `Серверы · ${serverCount}` : 'Серверы' },
+    {
+      id: 'servers' as const,
+      label: serverCount ? (
+        <>
+          Серверы <span className="ml-1 text-[var(--rd-caption)]">{serverCount}</span>
+        </>
+      ) : (
+        'Серверы'
+      ),
+    },
   ]
 
   return (
@@ -412,7 +421,7 @@ export function XraySubscriptionEditor({ initial, isEdit, onSaved, initialTab = 
                 {info
                   ? `Трафик ${formatBytesRu(used)}${info.total ? ` из ${formatBytesRu(info.total)}` : ''}`
                   : 'Список с сервера провайдера'}
-                {!!info?.expire && ` · до ${new Date(info.expire * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}`}
+                {!!info?.expire && `, до ${new Date(info.expire * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}`}
               </p>
               <button
                 type="button"

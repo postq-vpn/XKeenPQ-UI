@@ -6,11 +6,9 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogMedia,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Spinner } from '@/components/ui/spinner'
-import { TriangleAlert as IconAlertTriangle } from 'lucide-react'
 import { useState } from 'react'
 import { setIpv6 } from '../../lib/ipv6'
 import { useAppActions } from '../../lib/store'
@@ -35,15 +33,12 @@ export function Ipv6EnableDialog({ open, onClose }: { open: boolean; onClose: ()
 
   return (
     <AlertDialog open={open} onOpenChange={(next) => !next && !busy && onClose()}>
-      <AlertDialogContent size="sm">
-        <AlertDialogHeader>
-          <AlertDialogMedia>
-            <IconAlertTriangle />
-          </AlertDialogMedia>
-          <AlertDialogTitle>Включить IPv6 в домашней сети?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Устройства получат IPv6-адреса и будут открывать сервисы по IPv6. Многие VPN-серверы IPv6 не поддерживают, и часть сервисов,
-            например Instagram, может перестать открываться. Если что-то перестанет работать, отключите IPv6 кнопкой на главной панели.
+      <AlertDialogContent>
+        <AlertDialogHeader className="place-items-start gap-3 text-left">
+          <AlertDialogTitle>Включить IPv6?</AlertDialogTitle>
+          <AlertDialogDescription render={<div />} className="flex flex-col gap-2">
+            <p>Многие VPN-серверы не работают с IPv6, поэтому часть сервисов, например Instagram, может перестать открываться через VPN.</p>
+            <p>Если так случится, выключите IPv6 здесь же, в карточке «Роутер».</p>
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

@@ -1,12 +1,6 @@
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
-import {
-  Check as IconCheck,
-  Download as IconDownload,
-  Gauge as IconGauge,
-  Power as IconPower,
-  RefreshCw as IconRefresh,
-} from 'lucide-react'
+import { Download as IconDownload, Gauge as IconGauge, Power as IconPower, RefreshCw as IconRefresh } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { apiCall } from '../../lib/api'
 import { useAppContext } from '../../lib/store'
@@ -15,7 +9,7 @@ import type { XraySubscription } from '../../lib/types'
 import { cn } from '../../lib/utils'
 import { isNotRecommended, splitRecommended, withoutAutoServers } from '../modals/AutoServers'
 import { activeServerTag, serverName, type PingResult } from '../modals/XraySubscriptions'
-import { splitServerName } from '../postq/ui'
+import { Flag, splitFlag, splitServerName } from '../postq/ui'
 import { PostqMark } from '../ui/postq-logo'
 import { LiquidMark, type LiquidMarkHandle } from './LiquidMark'
 
@@ -219,7 +213,8 @@ function ServerPicker({ sub, state, withTitle }: { sub: XraySubscription; state:
     <div className="flex flex-col gap-(--rd-space-group)">
       <div className="flex items-center justify-between gap-(--rd-space-group)">
         <h3 className="rd-section flex items-center gap-(--rd-space-item)">
-          {withTitle ? `Сервер · ${sub.title?.trim() || sub.tag}` : 'Сервер'}
+          Сервер
+          {withTitle && <span className="text-[var(--rd-caption)]">{sub.title?.trim() || sub.tag}</span>}
           {busy && <Spinner className="size-4 text-[var(--rd-caption)]" />}
         </h3>
         <div className="flex shrink-0 items-center gap-(--rd-space-item)">
@@ -267,13 +262,13 @@ function ServerPicker({ sub, state, withTitle }: { sub: XraySubscription; state:
               </span>
             </span>
             {autoCurrent && <Ping result={pings[autoCurrent]} />}
-            {!sub.primary && <IconCheck size={20} strokeWidth={3} className="shrink-0 text-[var(--rd-action)]" />}
           </button>
 
           {servers.map((s, i) => {
             const selected = !!sub.primary && s.tag === active
             const first = isNotRecommended(s) && (i === 0 || !isNotRecommended(servers[i - 1]))
             const { main, note } = splitServerName(serverName(sub, s.tag))
+            const { flag, rest } = splitFlag(main)
             return (
               <Fragment key={s.tag}>
                 {first && (
@@ -289,12 +284,12 @@ function ServerPicker({ sub, state, withTitle }: { sub: XraySubscription; state:
                   className="rd-server"
                   onClick={() => void selectServer(sub, s.tag)}
                 >
+                  <Flag flag={flag} />
                   <span className="rd-body min-w-0 flex-1 truncate">
-                    {main}
+                    {rest}
                     {note && <span className="ml-2 text-[var(--rd-caption)]">{note}</span>}
                   </span>
                   <Ping result={pings[s.tag]} />
-                  {selected && <IconCheck size={20} strokeWidth={3} className="shrink-0 text-[var(--rd-action)]" />}
                 </button>
               </Fragment>
             )

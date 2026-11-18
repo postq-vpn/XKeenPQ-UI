@@ -691,7 +691,7 @@
     outline-offset: 2px;
   }
 
-  /* Строка сервера: серая плитка, выбранная — розовая рамка. */
+  /* Строка сервера: серая плитка, выбранная — мягкая розовая заливка. */
   .rd-server {
     display: flex;
     align-items: center;
@@ -712,12 +712,15 @@
   .rd-server:hover:not(:disabled) {
     background: var(--rd-chip-hover);
   }
-  .rd-server[aria-checked='true'] {
-    background: var(--rd-help);
-    border-color: var(--rd-action);
+  .rd-server[aria-checked='true'],
+  .rd-server[aria-checked='true']:hover:not(:disabled) {
+    background: var(--rd-action-soft);
+    color: var(--rd-on-soft);
   }
-  .dark .rd-server[aria-checked='true'] {
-    background: var(--rd-field);
+  /* Пинг медленного или неотвечающего сервера сохраняет свой цвет */
+  .rd-server[aria-checked='true'] .rd-meta:not([class*='warn']):not([class*='error']),
+  .rd-server[aria-checked='true'] .text-\[var\(--rd-caption\)\] {
+    color: color-mix(in srgb, var(--rd-on-soft) 70%, transparent);
   }
   .rd-server:disabled {
     cursor: default;

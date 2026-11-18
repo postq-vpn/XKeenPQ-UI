@@ -24,26 +24,15 @@ fn parse_version(info: &Value) -> DeviceInfo {
 }
 
 async fn query_rci(state: &AppState) -> Result<DeviceInfo, String> {
-    let mut req = state
-        .http_client
-        .get("http://127.0.0.1:79/rci/show/version")
-        .timeout(Duration::from_secs(5));
-    if let Some(token) = state.rci_token.as_ref() {
-        req = req.header("X-Ndma-Tkn", token);
-    }
-    let resp = req.send().await.map_err(|e| e.to_string())?;
-    if !resp.status().is_success() {
-        return Err(format!("RCI вернул {}", resp.status()));
-    }
-    let info: Value = resp.json().await.map_err(|e| e.to_string())?;
+    let info = crate::rci::get(state, "show/version").await?;
     let device = parse_version(&info);
     if device.model.is_empty() && device.os_version.is_empty() {
-        return Err("RCI не вернул модель и версию ОС".into());
+        return Err("роутер не вернул модель и версию ОС".into());
     }
     Ok(device)
 }
 
-/// Модель и версия ОС роутера; `None`, если RCI недоступен.
+/// Модель и версия ОС роутера; `None`, если роутер не ответил ни через RCI, ни через консоль.
 pub async fn router_device(state: &AppState) -> Option<DeviceInfo> {
     DEVICE.get_or_try_init(|| query_rci(state)).await.ok().cloned()
 }
@@ -109,15 +98,7 @@ fn parse_serial(defaults: &Value) -> Option<String> {
 }
 
 async fn query_serial(state: &AppState) -> Option<String> {
-    let mut req = state
-        .http_client
-        .get("http://127.0.0.1:79/rci/show/defaults")
-        .timeout(Duration::from_secs(5));
-    if let Some(token) = state.rci_token.as_ref() {
-        req = req.header("X-Ndma-Tkn", token);
-    }
-    let resp = req.send().await.ok().filter(|r| r.status().is_success())?;
-    parse_serial(&resp.json::<Value>().await.ok()?)
+    parse_serial(&crate::rci::get(state, "show/defaults").await.ok()?)
 }
 
 fn parse_mac(raw: &str) -> Option<String> {

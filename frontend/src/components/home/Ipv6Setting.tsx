@@ -63,6 +63,7 @@ export function Ipv6Setting() {
 
   if (!status.available) return null
   const enabled = !!status.enabled
+  const locked = !enabled && status.can_enable === false
   const url = segmentSettingsUrl()
 
   return (
@@ -73,13 +74,17 @@ export function Ipv6Setting() {
             IPv6 в домашней сети
           </label>
           <p className="rd-meta">
-            {enabled ? 'Включён — часть сервисов может открываться мимо VPN' : 'Отключён — так VPN работает надёжнее'}
+            {enabled
+              ? 'Включён — часть сервисов может открываться мимо VPN'
+              : locked
+                ? 'Отключён. Включить из панели можно после обновления прошивки до 5.2'
+                : 'Отключён — так VPN работает надёжнее'}
           </p>
         </div>
         <Switch
           id={`${panelId}-switch`}
           checked={enabled}
-          disabled={busy}
+          disabled={busy || locked}
           onCheckedChange={(next) => (next ? setConfirming(true) : void disable())}
           className="mt-0.5"
         />

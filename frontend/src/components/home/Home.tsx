@@ -15,6 +15,7 @@ import { useSubscriptions } from '../../lib/useSubscriptions'
 import { XraySubscriptionEditor } from '../modals/XraySubscriptions'
 import { cn } from '../../lib/utils'
 import type { MobileTab } from './MobileTabBar'
+import { DevicesBlock } from './DevicesBlock'
 import { RouterBlock } from './RouterBlock'
 import { SubscriptionBlock } from './SubscriptionBlock'
 import { VpnBlock } from './VpnBlock'
@@ -30,6 +31,7 @@ export function Home({
   onChanged,
   onAddNew,
   onRefreshStatus,
+  onOpenDevices,
   mobileTab,
 }: {
   /** Раздел нижней панели на телефоне; на десктопе видны все блоки сразу. */
@@ -39,6 +41,8 @@ export function Home({
   onChanged: () => void
   onAddNew: () => void
   onRefreshStatus: () => void
+  /** Экран устройств на телефоне (на компьютере устройства открываются окном). */
+  onOpenDevices: () => void
 }) {
   const state = useSubscriptions({ reloadKey, onLoaded, onChanged })
   const [editing, setEditing] = useState<XraySubscription | null>(null)
@@ -60,6 +64,10 @@ export function Home({
               }}
               onDelete={setDeleting}
             />
+          </div>
+          {/* На телефоне «Устройства» — во вкладке «Роутер», под его карточкой. */}
+          <div className={cn('max-lg:order-[10000]', mobileTab !== 'router' && 'max-lg:hidden')}>
+            <DevicesBlock onOpenPage={onOpenDevices} />
           </div>
           <div className={cn('order-last lg:order-none', mobileTab !== 'router' && 'max-lg:hidden')}>
             <RouterBlock />

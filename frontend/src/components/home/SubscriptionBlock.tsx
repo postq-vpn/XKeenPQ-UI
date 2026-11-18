@@ -93,7 +93,7 @@ function SubscriptionCard({
   const expired = daysLeft !== null && daysLeft <= 0
   const expiresSoon = daysLeft !== null && !expired && daysLeft <= EXPIRY_WARN_DAYS
   const endDate = expire ? new Date(expire * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }) : ''
-  const term = !expire ? 'Бессрочная' : expired ? `Закончилась ${endDate}` : `До ${endDate} · ещё ${days(daysLeft!)}`
+  const term = !expire ? 'Бессрочная' : expired ? `Закончилась ${endDate}` : `До ${endDate}, ещё ${days(daysLeft!)}`
   const titleId = `sub-${sub.tag}`
 
   return (

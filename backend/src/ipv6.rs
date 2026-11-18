@@ -11,7 +11,7 @@
 //! а после отключения при первом запуске один раз показывается окно с объяснением.
 
 use crate::logger::log;
-use crate::policy::{rci_command, rci_get, with_token};
+use crate::rci;
 use crate::types::{AppState, VERSION, XKEEN_CONF_DIR};
 use axum::extract::State;
 use axum::response::{IntoResponse, Json};
@@ -28,7 +28,6 @@ const FIRST_CHECK_DELAY: Duration = Duration::from_secs(2);
 const CHECK_INTERVAL: Duration = Duration::from_secs(2 * 3600);
 /// Роутер не ответил при первом отключении (например, ещё загружается): пробуем снова скоро.
 const RETRY_INTERVAL: Duration = Duration::from_secs(10);
-const RCI_TIMEOUT: Duration = Duration::from_secs(8);
 /// Сразу после загрузки роутера прошивка может ещё не применить настройки, и пустой список блоков
 /// IPv6 значил бы не «выключен», а «не загружен». Решение откладывается до этого времени работы.
 const MIN_UPTIME: Duration = Duration::from_secs(180);
@@ -108,7 +107,7 @@ async fn saved_subnets() -> serde_json::Map<String, Value> {
 /// `auto` — отключила сама панель при первом запуске: тогда пользователю покажут окно. Пока
 /// отключение не закончено, в записи стоит `pending`: при ошибке следующая попытка продолжит.
 async fn disable(state: &AppState, auto: bool) -> Result<(), String> {
-    let subnets = rci_get(state, "ipv6/subnet").await?;
+    let subnets = rci::get(state, "ipv6/subnet").await?;
     let names = segment_subnets(&subnets, HOME_SEGMENT);
     if let Some(bad) = names.iter().find(|n| !is_plain_name(n)) {
         return Err(format!("непривычное имя настройки «{bad}»"));
@@ -119,11 +118,11 @@ async fn disable(state: &AppState, auto: bool) -> Result<(), String> {
     record["pending"] = json!(true);
     write_record(&record).await?;
     for name in &names {
-        rci_command(state, &format!("no ipv6 subnet {name}")).await?;
+        rci::command(state, &format!("no ipv6 subnet {name}")).await?;
     }
     // Без сохранения IPv6 вернулся бы после перезагрузки роутера
     if !names.is_empty()
-        && let Err(e) = rci_command(state, "system configuration save").await
+        && let Err(e) = rci::command(state, "system configuration save").await
     {
         log("ERROR", format!("Не удалось сохранить настройки роутера: {e}"));
     }
@@ -139,30 +138,6 @@ fn subnet_write(name: &str, config: &Value) -> Value {
     json!({ "ipv6": { "subnet": subnet } })
 }
 
-/// Ошибка из ответа RCI на запись настроек (`status: error` где-либо в ответе).
-fn write_error(response: &Value) -> Option<String> {
-    match response {
-        Value::Object(map) => {
-            if map.get("status").and_then(Value::as_str) == Some("error") {
-                return Some(map.get("message").and_then(Value::as_str).unwrap_or("ошибка").to_string());
-            }
-            map.values().find_map(write_error)
-        }
-        Value::Array(list) => list.iter().find_map(write_error),
-        _ => None,
-    }
-}
-
-async fn rci_write(state: &AppState, body: &Value) -> Result<(), String> {
-    let request = state.http_client.post("http://127.0.0.1:79/rci/").timeout(RCI_TIMEOUT).json(body);
-    let response = with_token(request, state).send().await.map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        return Err(format!("роутер ответил {}", response.status()));
-    }
-    let answer: Value = response.json().await.map_err(|e| e.to_string())?;
-    write_error(&answer).map_or(Ok(()), Err)
-}
-
 /// Настройки, с которыми веб-интерфейс роутера включает IPv6 у сегмента. Имя `Default` берётся,
 /// только если оно свободно: иначе запись перепривязала бы блок другого сегмента.
 fn default_subnets(current: &Value) -> serde_json::Map<String, Value> {
@@ -174,16 +149,16 @@ fn default_subnets(current: &Value) -> serde_json::Map<String, Value> {
 /// Возвращает блоки `ipv6 subnet`, сохранённые при отключении, а если их нет — настройки как у
 /// веб-интерфейса.
 async fn enable(state: &AppState) -> Result<(), String> {
-    let current = rci_get(state, "ipv6/subnet").await?;
+    let current = rci::get(state, "ipv6/subnet").await?;
     if !segment_subnets(&current, HOME_SEGMENT).is_empty() {
         return Ok(());
     }
     let saved = saved_subnets().await;
     let subnets = if saved.is_empty() { default_subnets(&current) } else { saved };
     for (name, config) in &subnets {
-        rci_write(state, &subnet_write(name, config)).await?;
+        rci::write(state, &subnet_write(name, config)).await?;
     }
-    if let Err(e) = rci_command(state, "system configuration save").await {
+    if let Err(e) = rci::command(state, "system configuration save").await {
         log("ERROR", format!("Не удалось сохранить настройки роутера: {e}"));
     }
     // Запись остаётся: первый запуск уже был, панель не отключит IPv6 сама
@@ -201,7 +176,7 @@ async fn first_run(state: &AppState) -> Result<bool, String> {
     if !pending && tokio::fs::try_exists(state_path()).await.unwrap_or(false) {
         return Ok(false);
     }
-    let subnets = rci_get(state, "ipv6/subnet").await?;
+    let subnets = rci::get(state, "ipv6/subnet").await?;
     if segment_subnets(&subnets, HOME_SEGMENT).is_empty() {
         if pending {
             // Прошлая попытка всё удалила, но не успела отметить это
@@ -223,7 +198,7 @@ fn is_pending(record: &Value) -> bool {
 }
 
 async fn is_enabled(state: &AppState) -> Result<bool, String> {
-    let subnets = rci_get(state, "ipv6/subnet").await?;
+    let subnets = rci::get(state, "ipv6/subnet").await?;
     Ok(!segment_subnets(&subnets, HOME_SEGMENT).is_empty())
 }
 
@@ -320,12 +295,13 @@ pub async fn post_ipv6_accept() -> impl IntoResponse {
     }
 }
 
-/// `available` — роутер ответил; `enabled` — IPv6 раздаётся в основную сеть; `ask` — показать окно.
+/// `available` — роутер ответил; `enabled` — IPv6 раздаётся в основную сеть; `ask` — показать окно;
+/// `can_enable` — включить можно: для этого нужна запись через RCI, через консоль её не выполнить.
 pub async fn get_ipv6_status(State(state): State<AppState>) -> impl IntoResponse {
     match is_enabled(&state).await {
         Ok(enabled) => {
             let ask = should_ask(read_record().await.as_ref(), enabled);
-            Json(json!({ "success": true, "available": true, "enabled": enabled, "ask": ask }))
+            Json(json!({ "success": true, "available": true, "enabled": enabled, "ask": ask, "can_enable": !rci::using_console() }))
         }
         Err(_) => Json(json!({ "success": true, "available": false })),
     }
@@ -355,14 +331,6 @@ mod tests {
                 "name": "Default", "bind": "Bridge0", "mode": { "slaac": true }, "prefix": { "length": 64 }, "number": "0"
             } } })
         );
-    }
-
-    #[test]
-    fn finds_errors_in_write_answer() {
-        let done = json!({ "ipv6": { "subnet": { "status": [{ "status": "message", "message": "created subnet" }] } } });
-        assert!(write_error(&done).is_none());
-        let failed = json!({ "ipv6": { "subnet": { "status": [{ "status": "error", "message": "argument parse error." }] } } });
-        assert_eq!(write_error(&failed).unwrap(), "argument parse error.");
     }
 
     #[test]

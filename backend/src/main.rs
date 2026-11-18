@@ -1,14 +1,18 @@
 mod auth;
 mod backuper;
 mod configs;
+mod console;
 mod controller;
 mod frontend_embedder;
 mod geo;
 mod geoipset;
 mod ipv6;
 mod logger;
+mod devices;
 mod policy;
 mod private_file;
+mod rci;
+mod rci_token;
 mod route_test;
 mod settings;
 mod subscriptions;
@@ -20,7 +24,6 @@ mod websocket;
 mod xray_log;
 use crate::logger::{log, ts};
 use crate::types::*;
-use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Router, middleware};
 
@@ -248,11 +251,7 @@ fn fatal_signal_message(sig: i32) -> &'static [u8] {
 #[tokio::main]
 async fn main() {
     if std::env::args().any(|arg| arg == "-v" || arg == "-V" || arg == "--version") {
-        let xkeen_config_path = XKEEN_CONF;
-        let rci_token = std::fs::read_to_string(xkeen_config_path)
-            .ok()
-            .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
-            .and_then(|json| json.get("xkeen")?.get("rci_token")?.as_str().map(String::from));
+        let rci_token = rci_token::load();
 
         let mut router_req = reqwest::blocking::Client::builder()
             .user_agent("XKeen-UI")
@@ -263,10 +262,13 @@ async fn main() {
             router_req = router_req.header("X-Ndma-Tkn", token);
         }
 
+        // Без токена на KeeneticOS 5.x RCI отказывает — тогда модель и версия из консоли
         let router_info = router_req
             .send()
             .ok()
-            .and_then(|resp| resp.json::<serde_json::Value>().ok());
+            .filter(|resp| resp.status().is_success())
+            .and_then(|resp| resp.json::<serde_json::Value>().ok())
+            .or_else(|| console::run_blocking("show version").map(|text| console::parse_show(&text)));
 
         let device = router_info
             .as_ref()
@@ -432,11 +434,7 @@ async fn main() {
     let (log_tx, _) = broadcast::channel::<String>(16);
     let log_tx_arc = Arc::new(log_tx);
 
-    let xkeen_config_path = XKEEN_CONF;
-    let rci_token = std::fs::read_to_string(xkeen_config_path)
-        .ok()
-        .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
-        .and_then(|json| json.get("xkeen")?.get("rci_token")?.as_str().map(String::from));
+    let rci_token = Arc::new(RwLock::new(rci_token::load()));
 
     let state = AppState {
         settings: Arc::new(RwLock::new(settings)),
@@ -467,24 +465,15 @@ async fn main() {
         }
     }
 
-    if let Some(ref _token) = state.rci_token {
-        log("INFO", "RCI токен успешно загружен".into());
-    } else {
-        match state
-            .http_client
-            .get("http://127.0.0.1:79/rci/show/version")
-            .timeout(std::time::Duration::from_secs(5))
-            .send()
-            .await
-        {
-            Ok(resp) if resp.status() == StatusCode::FORBIDDEN => {
-                log(
-                    "ERROR",
-                    "Ошибка доступа к RCI. Некоторый функционал может быть недоступен.".into(),
-                );
+    // Проверка доступа к роутеру: если RCI не пускает (нет токена), rci сам напишет в журнал,
+    // что панель работает через консоль роутера
+    {
+        let state = state.clone();
+        tokio::spawn(async move {
+            if let Err(e) = rci::get(&state, "show/version").await {
+                log("ERROR", format!("Роутер не отвечает ни через RCI, ни через консоль: {e}"));
             }
-            _ => {}
-        }
+        });
     }
 
     let secure_api = Router::new()
@@ -493,6 +482,10 @@ async fn main() {
             get(controller::get_control).post(controller::post_control),
         )
         .route("/api/policy-status", get(policy::get_policy_status))
+        .route("/api/rci-status", get(rci::get_rci_status))
+        .route("/api/devices", get(devices::get_devices))
+        .route("/api/devices/vpn", post(devices::post_device_vpn))
+        .route("/api/devices/name", post(devices::post_device_name))
         .route("/api/ipv6-status", get(ipv6::get_ipv6_status))
         .route("/api/ipv6", post(ipv6::post_ipv6))
         .route("/api/ipv6/accept", post(ipv6::post_ipv6_accept))

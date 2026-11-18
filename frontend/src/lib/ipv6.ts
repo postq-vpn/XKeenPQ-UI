@@ -8,6 +8,8 @@ export interface Ipv6Status {
   available: boolean
   enabled?: boolean
   ask?: boolean
+  /** Включить можно только через RCI; на прошивке без токена (до 5.2) — нельзя, выключить — можно. */
+  can_enable?: boolean
 }
 
 /** Сообщает баннеру, что IPv6 включили, отключили или выбор в окне сохранён. */

@@ -4,6 +4,7 @@ import { LoginForm, RemoteBlocked } from './components/auth/Login'
 import { RouterUnreachable } from './components/status/RouterUnreachable'
 import { MOBILE_TABS, MobileTabBar, type MobileTab } from './components/home/MobileTabBar'
 import { SettingsPage } from './components/home/SettingsPage'
+import { DevicesPage } from './components/home/DevicesBlock'
 import type { CodeMirrorRef } from './components/configuration/CodeMirror'
 import { ConfigPanel, isPanelManagedFile } from './components/configuration/ConfigPanel'
 
@@ -19,6 +20,7 @@ import { UpdateModal } from './components/modals/Update'
 import { AppHeader } from './components/home/AppHeader'
 import { Home } from './components/home/Home'
 import { PolicyWarning } from './components/status/PolicyWarning'
+import { RciTokenWarning } from './components/status/RciTokenWarning'
 import { RoutingWarning } from './components/status/RoutingWarning'
 import { Toast } from './components/ui/toast'
 import { apiCall } from './lib/api'
@@ -335,6 +337,22 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     if (window.history.state?.settingsPage) window.history.back()
     else setSettingsPage(false)
   }, [])
+  // Устройства на телефоне — тоже отдельный экран с записью в истории.
+  const [devicesPage, setDevicesPage] = useState(false)
+  useEffect(() => {
+    const onPop = () => setDevicesPage(!!window.history.state?.devicesPage)
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+  const openDevicesPage = useCallback(() => {
+    window.history.pushState({ devicesPage: true }, '')
+    setDevicesPage(true)
+    window.scrollTo({ top: 0 })
+  }, [])
+  const closeDevicesPage = useCallback(() => {
+    if (window.history.state?.devicesPage) window.history.back()
+    else setDevicesPage(false)
+  }, [])
   const [activeFile, setActiveFile] = useState<string | null>(null)
   const openFile = useCallback(
     (file: string) => {
@@ -487,7 +505,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
     setSettingsPage(true)
     window.scrollTo({ top: 0 })
   }, [openModal])
-  const showTabBar = view === 'servers' && !settingsPage
+  const showTabBar = view === 'servers' && !settingsPage && !devicesPage
 
   return (
     <div className="bg-background flex min-h-dvh flex-col">
@@ -501,7 +519,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
         >
           <AppHeader
             onOpenSettings={openSettings}
-            onBack={settingsPage ? closeSettingsPage : undefined}
+            onBack={settingsPage ? closeSettingsPage : devicesPage ? closeDevicesPage : undefined}
             onOpenUpdate={(core) => {
               dispatch({ type: 'SET_UPDATE_MODAL_CORE', core })
               openModal('showUpdateModal')
@@ -517,10 +535,12 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
               }}
             />
           )}
+          {devicesPage && !settingsPage && <DevicesPage />}
           {/* Экран настроек закрывает разделы, но не размонтирует их: подписка и выбор сервера не грузятся заново. */}
-          <div className={settingsPage ? 'hidden' : 'contents'}>
+          <div className={settingsPage || devicesPage ? 'hidden' : 'contents'}>
             <RoutingWarning reloadKey={subsReloadKey} />
             <PolicyWarning onRestarted={() => void checkStatus()} />
+            <RciTokenWarning />
             <div className={cn(view !== 'servers' && 'hidden')}>
               <Home
                 reloadKey={subsReloadKey}
@@ -529,6 +549,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
                 onLoaded={onSubscriptionsLoaded}
                 onRefreshStatus={() => void checkStatus()}
                 mobileTab={mobileTab}
+                onOpenDevices={openDevicesPage}
               />
             </div>
             {/* Техническое меню: навигация слева (на телефоне — список сверху), справа редактор файла или журнал. */}

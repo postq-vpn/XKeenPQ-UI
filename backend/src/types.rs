@@ -106,7 +106,8 @@ pub struct AppState {
     pub log_watcher: Arc<Mutex<Option<AbortHandle>>>,
     pub app_config_lock: Arc<Mutex<()>>,
     pub debug: bool,
-    pub rci_token: Option<String>,
+    /// Токен доступа к RCI; панель может выпустить новый (`rci_token::renew`).
+    pub rci_token: Arc<RwLock<Option<String>>>,
 }
 
 #[derive(Clone, Default)]
@@ -129,6 +130,8 @@ pub struct GuiSettings {
     pub auto_apply: bool,
     /// Пользователь отказался от политики xkeen: панель не предлагает её создать.
     pub hide_policy_hint: bool,
+    /// Пользователь скрыл уведомление «прошивка не выпускает токен RCI, обновите её».
+    pub hide_rci_hint: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

@@ -1,4 +1,4 @@
-import { CircleAlert as IconAlertCircle, Clock as IconClock } from 'lucide-react'
+import { CircleAlert as IconAlertCircle, Clock as IconClock, Globe as IconGlobe } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
@@ -111,6 +111,27 @@ export function formatInterval(seconds: number) {
 }
 
 /** Имя сервера из подписки: «🇳🇱 Нидерланды | Ai» → основная часть и пометка провайдера. */
+/** Флаг-эмодзи в начале названия сервера («🇸🇪 Home») и остальное название. */
+export function splitFlag(name: string) {
+  const match = name.match(/^\s*(\p{Regional_Indicator}{2})\s*/u)
+  return match ? { flag: match[1], rest: name.slice(match[0].length) } : { flag: null, rest: name }
+}
+
+/**
+ * Круглый флаг, как в больших VPN-приложениях: эмодзи-флаг крупнее круга, края обрезаются.
+ * Без флага — глобус, чтобы названия в списке стояли ровно.
+ */
+export function Flag({ flag }: { flag: string | null }) {
+  return (
+    <span
+      aria-hidden
+      className="flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--rd-chip)] text-[var(--rd-caption)]"
+    >
+      {flag ? <span className="text-[34px] leading-none">{flag}</span> : <IconGlobe size={14} />}
+    </span>
+  )
+}
+
 export function splitServerName(name: string) {
   const [main, ...rest] = name.split('|')
   return { main: main.trim(), note: rest.join('|').trim() }
